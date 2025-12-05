@@ -23,21 +23,16 @@ from ..utils import split_message_efficiently
 async def get_usage_stats(user_id: int) -> Dict[str, Any]:
     """
     Получение статистики использования пользователя
-    
-    Args:
-        user_id: ID пользователя
-    
-    Returns:
-        Словарь со статистикой
     """
     if user_id not in user_stats_cache:
+        from datetime import datetime
         user_stats_cache.set(user_id, {
             'tools_used': 0,
             'ai_requests': 0,
             'calculator_uses': 0,
             'skilltrainer_sessions': 0,
-            'first_seen': '2024-01-01',  # Будет заменено на datetime при использовании
-            'last_active': '2024-01-01',
+            'first_seen': datetime.now().strftime('%Y-%m-%d'),
+            'last_active': datetime.now().strftime('%Y-%m-%d'),
             'ab_test_group': 'A' if user_id % 2 == 0 else 'B'
         })
     
@@ -48,10 +43,6 @@ async def get_usage_stats(user_id: int) -> Dict[str, Any]:
 async def update_usage_stats(user_id: int, tool_type: str):
     """
     Обновление статистики использования
-    
-    Args:
-        user_id: ID пользователя
-        tool_type: Тип инструмента ('ai', 'calculator', 'skilltrainer')
     """
     stats = await get_usage_stats(user_id)
     
@@ -62,7 +53,6 @@ async def update_usage_stats(user_id: int, tool_type: str):
     elif tool_type == 'skilltrainer':
         stats['skilltrainer_sessions'] = stats.get('skilltrainer_sessions', 0) + 1
     
-    # Обновляем количество использованных инструментов
     tools_used = set()
     if stats['ai_requests'] > 0:
         tools_used.add('ai')
@@ -78,13 +68,17 @@ async def update_usage_stats(user_id: int, tool_type: str):
 
 async def show_usage_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Показать прогресс использования бота
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
+    Показать прогресс использования бота (работает и с callback, и с message)
     """
-    user_id = update.message.from_user.id
+    # Определяем user_id из любого источника
+    if update.callback_query:
+        user_id = update.callback_query.from_user.id
+    elif update.message:
+        user_id = update.message.from_user.id
+    else:
+        logger.warning("show_usage_progress: невозможно определить пользователя")
+        return
+
     stats = await get_usage_stats(user_id)
     
     # Создаем прогресс-бары
@@ -101,18 +95,16 @@ async def show_usage_progress(update: Update, context: ContextTypes.DEFAULT_TYPE
 💡 Исследуйте больше инструментов для увеличения прогресса!
     """
     
-    await update.message.reply_text(progress_text, parse_mode=ParseMode.MARKDOWN)
+    # Отправляем в зависимости от контекста
+    if update.callback_query:
+        await update.callback_query.message.reply_text(progress_text, parse_mode=ParseMode.MARKDOWN)
+    elif update.message:
+        await update.message.reply_text(progress_text, parse_mode=ParseMode.MARKDOWN)
 
 
 async def get_personal_recommendation(user_id: int) -> str:
     """
     Получить персональную рекомендацию для пользователя
-    
-    Args:
-        user_id: ID пользователя
-    
-    Returns:
-        Текст рекомендации
     """
     stats = await get_usage_stats(user_id)
     
@@ -129,12 +121,14 @@ async def get_personal_recommendation(user_id: int) -> str:
 async def show_referral_program(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Показать реферальную программу
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
     """
-    user_id = update.message.from_user.id
+    if update.callback_query:
+        user_id = update.callback_query.from_user.id
+    elif update.message:
+        user_id = update.message.from_user.id
+    else:
+        return
+
     bot_username = (await context.bot.get_me()).username
     ref_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
     
@@ -149,7 +143,10 @@ async def show_referral_program(update: Update, context: ContextTypes.DEFAULT_TY
 💬 Просто отправь другу эту ссылку!
     """
     
-    await update.message.reply_text(referral_text, parse_mode=ParseMode.MARKDOWN)
+    if update.callback_query:
+        await update.callback_query.message.reply_text(referral_text, parse_mode=ParseMode.MARKDOWN)
+    elif update.message:
+        await update.message.reply_text(referral_text, parse_mode=ParseMode.MARKDOWN)
 
 
 # ==============================================================================
@@ -159,13 +156,6 @@ async def show_referral_program(update: Update, context: ContextTypes.DEFAULT_TY
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     """
     Обработчик команды /start
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
-    
-    Returns:
-        Состояние бота после выполнения
     """
     if not update.message:
         return BotState.MAIN_MENU
@@ -223,13 +213,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     """
     Обработчик команды /menu
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
-    
-    Returns:
-        Состояние бота после выполнения
     """
     return await start(update, context)
 
@@ -237,10 +220,6 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Bo
 async def version_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Обработчик команды /version
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
     """
     version_info = f"""
 🤖 **Personal Growth AI** {BOT_VERSION}
@@ -269,10 +248,6 @@ async def version_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Обработчик команды /progress
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
     """
     await show_usage_progress(update, context)
     
@@ -284,38 +259,29 @@ async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def referral_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Обработчик команды /referral
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
     """
     await show_referral_program(update, context)
 
 
 # ==============================================================================
-# ФУНКЦИЯ НАСТРОЙКИ ОБРАБОТЧИКОВ
+# ФУНКЦИЯ ДЛЯ МЕНЮ
 # ==============================================================================
+
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     """
     Показать главное меню (используется из ai_handlers)
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
-    
-    Returns:
-        Состояние бота после выполнения
     """
     return await start(update, context)
-    
+
+
+# ==============================================================================
+# НАСТРОЙКА ОБРАБОТЧИКОВ
+# ==============================================================================
+
 def setup_commands(application: Application):
     """
     Настройка обработчиков команд для приложения
-    
-    Args:
-        application: Приложение Telegram бота
     """
-    # Основные команды
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("version", version_command))
