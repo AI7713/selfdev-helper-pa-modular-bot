@@ -145,3 +145,12 @@ class SkillSession:
     def is_gate_passed(self, gate_id: str) -> bool:
         """Проверить пройден ли гейт"""
         return gate_id in self.gates_passed
+# ==============================================================================
+# ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
+# ==============================================================================
+
+# Глобальные экземпляры для использования во всём приложении
+user_stats_cache = LRUCache(max_size=500)
+rate_limiter = RateLimiter(max_requests=15, window_seconds=60)
+ai_cache = AIResponseCache(max_size=100)
+active_skill_sessions: Dict[int, SkillSession] = {}
