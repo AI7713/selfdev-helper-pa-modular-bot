@@ -443,6 +443,18 @@ def setup_ai_handlers(application: Application, groq_client: Optional[Groq] = No
         application: Приложение Telegram бота
         groq_client: Клиент Groq API
     """
+
+    # ... весь код обработчиков ...
+    
+    logger.info("AI обработчики настроены")
+    
+    # Сохраняем groq_client в контексте приложения для использования в обработчиках
+    if groq_client:
+        application.groq_client = groq_client
+    else:
+        application.groq_client = None
+
+    
     # Обработчики меню
     application.add_handler(CallbackQueryHandler(show_main_menu, pattern='^main_menu$'))
     application.add_handler(CallbackQueryHandler(menu_self, pattern='^menu_self$'))
