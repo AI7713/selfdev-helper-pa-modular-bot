@@ -18,15 +18,6 @@ from .commands import update_usage_stats
 # ==============================================================================
 
 def calculate_economy_metrics(data):
-    """
-    Расчет финансовых метрик товара
-    
-    Args:
-        data: Список из 6 значений [себестоимость, цена, комиссия%, логистика%, acos%, налог%]
-    
-    Returns:
-        Словарь с рассчитанными метриками
-    """
     себестоимость = data[0]
     цена = data[1]
     комиссия_процент = data[2]
@@ -70,15 +61,6 @@ def calculate_economy_metrics(data):
 
 
 def generate_recommendations(metrics):
-    """
-    Генерация рекомендаций на основе метрик
-    
-    Args:
-        metrics: Словарь с метриками
-    
-    Returns:
-        Список рекомендаций
-    """
     recommendations = []
     
     if metrics['наценка_%'] > BENCHMARKS['наценка']['высокая']:
@@ -110,9 +92,6 @@ def generate_recommendations(metrics):
 
 
 async def calculate_and_show_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Расчет и отображение результатов калькулятора
-    """
     data = [get_calculator_data_safe(context, i) for i in range(6)]
     metrics = calculate_economy_metrics(data)
     recommendations = generate_recommendations(metrics)
@@ -148,9 +127,6 @@ async def calculate_and_show_results(update: Update, context: ContextTypes.DEFAU
 
 
 async def start_economy_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Запуск калькулятора маркетплейса
-    """
     context.user_data['calculator_step'] = 0
     context.user_data['calculator_data'] = {}
     context.user_data['state'] = BotState.CALCULATOR
@@ -172,21 +148,18 @@ async def start_economy_calculator(update: Update, context: ContextTypes.DEFAULT
 
 
 async def handle_economy_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Обработка ввода данных калькулятора
-    """
     text = update.message.text
     step = context.user_data.get('calculator_step', 0)
     
     if text == "🔙 Назад":
-    if step == 0:
-        # Возвращаемся в главное меню через /start
-        from .commands import start
-        return await start(update, context)
-    else:
-        context.user_data['calculator_step'] = step - 1
-        await update.message.reply_text(CALCULATOR_STEPS[step - 1])
-    return
+        if step == 0:
+            # Возвращаемся в главное меню через /start
+            from .commands import start
+            await start(update, context)
+        else:
+            context.user_data['calculator_step'] = step - 1
+            await update.message.reply_text(CALCULATOR_STEPS[step - 1])
+        return
     
     if text == "🔄 Новый расчет":
         context.user_data['calculator_step'] = 0
@@ -217,9 +190,6 @@ async def handle_economy_calculator(update: Update, context: ContextTypes.DEFAUL
 # ==============================================================================
 
 async def menu_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    """
-    Обработчик выбора калькулятора из меню
-    """
     query = update.callback_query
     await query.answer()
     
@@ -231,13 +201,10 @@ async def menu_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 # ==============================================================================
-# НАВИГАЦИОННАЯ ФУНКЦИЯ (добавлена!)
+# НАВИГАЦИОННАЯ ФУНКЦИЯ
 # ==============================================================================
 
 async def show_business_menu_from_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Показать бизнес-меню из callback (используется в skilltrainer и калькуляторе)
-    """
     keyboard = [
         [InlineKeyboardButton("📊 Калькулятор маркетплейсов", callback_data='menu_calculator')],
         [InlineKeyboardButton("🗣️ Переговорщик", callback_data='ai_negotiator_business'),
@@ -269,8 +236,5 @@ async def show_business_menu_from_callback(update: Update, context: ContextTypes
 # ==============================================================================
 
 def setup_calculator_handlers(application: Application):
-    """
-    Настройка обработчиков калькулятора для приложения
-    """
     application.add_handler(CallbackQueryHandler(menu_calculator, pattern='^menu_calculator$'))
     logger.info("Обработчики калькулятора настроены")
