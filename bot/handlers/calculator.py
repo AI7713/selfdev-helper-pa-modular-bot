@@ -1,7 +1,7 @@
 """
 Обработчик калькулятора маркетплейса
 """
-from telegram import Update, KeyboardButton, ReplyKeyboardMarkup
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, Application, MessageHandler, filters, CallbackQueryHandler
 from telegram.constants import ParseMode
 
@@ -112,21 +112,11 @@ def generate_recommendations(metrics):
 async def calculate_and_show_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Расчет и отображение результатов калькулятора
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
     """
-    # Получаем данные из контекста
     data = [get_calculator_data_safe(context, i) for i in range(6)]
-    
-    # Рассчитываем метрики
     metrics = calculate_economy_metrics(data)
-    
-    # Генерируем рекомендации
     recommendations = generate_recommendations(metrics)
     
-    # Формируем отчёт
     report = f"""📊 **ФИНАНСОВЫЙ АНАЛИЗ ТОВАРА**
 💰 **ВЫРУЧКА И ЗАТРАТЫ:**
 • Выручка: {metrics['выручка']:.1f} ₽
@@ -148,34 +138,23 @@ async def calculate_and_show_results(update: Update, context: ContextTypes.DEFAU
     for rec in recommendations:
         report += f"• {rec}\n"
     
-    # Создаем клавиатуру для навигации
     keyboard = [
         [KeyboardButton("🔄 Новый расчет")],
         [KeyboardButton("🔙 Назад")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
-    # Отправляем отчёт
     await update.message.reply_text(report, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
-    
-    # Обновляем статистику использования
     await update_usage_stats(update.message.from_user.id, 'calculator')
 
 
 async def start_economy_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Запуск калькулятора маркетплейса
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
     """
-    # Инициализируем данные калькулятора
     context.user_data['calculator_step'] = 0
     context.user_data['calculator_data'] = {}
     context.user_data['state'] = BotState.CALCULATOR
     
-    # Определяем откуда пришёл запрос
     if update.callback_query:
         await update.callback_query.message.reply_text(
             "🛍️ **РАСЧЕТ ЭКОНОМИКИ МАРКЕТПЛЕЙСА**\n"
@@ -195,20 +174,14 @@ async def start_economy_calculator(update: Update, context: ContextTypes.DEFAULT
 async def handle_economy_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Обработка ввода данных калькулятора
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
     """
     text = update.message.text
     step = context.user_data.get('calculator_step', 0)
     
-    # Обработка кнопок навигации
     if text == "🔙 Назад":
         if step == 0:
             context.user_data['state'] = BotState.BUSINESS_MENU
-            # Здесь будет вызов функции показа бизнес-меню (создадим позже)
-            await update.message.reply_text("Возвращаемся в бизнес-меню...")
+            await show_business_menu_from_callback(update, context)
         else:
             context.user_data['calculator_step'] = step - 1
             await update.message.reply_text(CALCULATOR_STEPS[step - 1])
@@ -220,18 +193,15 @@ async def handle_economy_calculator(update: Update, context: ContextTypes.DEFAUL
         await start_economy_calculator(update, context)
         return
     
-    # Обработка числового ввода
     try:
         value = float(text)
         if value < 0:
             await update.message.reply_text("❌ Число должно быть положительным. Попробуйте еще раз:")
             return
         
-        # Сохраняем значение
         context.user_data['calculator_data'][step] = value
         context.user_data['calculator_step'] = step + 1
         
-        # Показываем следующий шаг или результаты
         if step + 1 < len(CALCULATOR_STEPS):
             await update.message.reply_text(CALCULATOR_STEPS[step + 1])
         else:
@@ -248,13 +218,6 @@ async def handle_economy_calculator(update: Update, context: ContextTypes.DEFAUL
 async def menu_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     """
     Обработчик выбора калькулятора из меню
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
-    
-    Returns:
-        Состояние бота после выполнения
     """
     query = update.callback_query
     await query.answer()
@@ -267,20 +230,46 @@ async def menu_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 # ==============================================================================
+# НАВИГАЦИОННАЯ ФУНКЦИЯ (добавлена!)
+# ==============================================================================
+
+async def show_business_menu_from_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Показать бизнес-меню из callback (используется в skilltrainer и калькуляторе)
+    """
+    keyboard = [
+        [InlineKeyboardButton("📊 Калькулятор маркетплейсов", callback_data='menu_calculator')],
+        [InlineKeyboardButton("🗣️ Переговорщик", callback_data='ai_negotiator_business'),
+         InlineKeyboardButton("🎓 SKILLTRAINER", callback_data='ai_skilltrainer_business')],
+        [InlineKeyboardButton("📝 Редактор", callback_data='ai_editor_business'),
+         InlineKeyboardButton("🎯 Маркетолог", callback_data='ai_marketer_business')],
+        [InlineKeyboardButton("🚀 HR-рекрутер", callback_data='ai_hr_business')],
+        [InlineKeyboardButton("🔙 В главное меню", callback_data='main_menu')]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            "🚀 **ДЛЯ ДЕЛА**\nИнструменты для профессионального роста и бизнеса:",
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        await update.message.reply_text(
+            "🚀 **ДЛЯ ДЕЛА**\nИнструменты для профессионального роста и бизнеса:",
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+
+# ==============================================================================
 # ФУНКЦИЯ НАСТРОЙКИ ОБРАБОТЧИКОВ
 # ==============================================================================
 
 def setup_calculator_handlers(application: Application):
     """
     Настройка обработчиков калькулятора для приложения
-    
-    Args:
-        application: Приложение Telegram бота
     """
-    # Обработчик выбора калькулятора из меню
     application.add_handler(CallbackQueryHandler(menu_calculator, pattern='^menu_calculator$'))
-    
-    # Обработчик ввода данных калькулятора (будет подключен в main_handler)
-    # MessageHandler(filters.TEXT & ~filters.COMMAND, handle_economy_calculator)
-    
     logger.info("Обработчики калькулятора настроены")
