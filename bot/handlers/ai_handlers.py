@@ -14,7 +14,8 @@ from ..config import (
 )
 from ..models import rate_limiter, ai_cache, BotState
 from ..utils import sanitize_user_input, split_message_efficiently
-from .commands import update_usage_stats, show_main_menu
+from .commands import update_usage_stats
+from .commands import show_main_menu
 
 
 # ==============================================================================
