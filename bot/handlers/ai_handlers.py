@@ -14,7 +14,7 @@ from ..config import (
 )
 from ..models import rate_limiter, ai_cache, BotState
 from ..utils import sanitize_user_input, split_message_efficiently
-from .commands import update_usage_stats
+from .commands import update_usage_stats, show_main_menu
 
 
 # ==============================================================================
@@ -461,47 +461,3 @@ def setup_ai_handlers(application: Application, groq_client: Optional[Groq] = No
     
     # Сохраняем groq_client в контексте приложения для использования в обработчиках
     application.groq_client = groq_client
-
-
-# ==============================================================================
-# ВРЕМЕННЫЕ ФУНКЦИИ (будут перенесены в другие модули)
-# ==============================================================================
-
-async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    """
-    Временная функция - будет перенесена в commands.py
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
-    
-    Returns:
-        Состояние бота после выполнения
-    """
-    query = update.callback_query
-    if query:
-        await query.answer()
-        
-        from .commands import get_usage_stats
-        user_id = query.from_user.id
-        stats = await get_usage_stats(user_id)
-        
-        if stats['ab_test_group'] == 'A':
-            keyboard = [
-                [InlineKeyboardButton("Для себя (ИИ-инструменты)", callback_data='menu_self')],
-                [InlineKeyboardButton("Для дела (Калькуляторы и ИИ-инструменты)", callback_data='menu_business')]
-            ]
-        else:
-            keyboard = [
-                [InlineKeyboardButton("🧠 Личный рост", callback_data='menu_self')],
-                [InlineKeyboardButton("🚀 Бизнес и карьера", callback_data='menu_business')],
-                [InlineKeyboardButton("📊 Мой прогресс", callback_data='show_progress')]
-            ]
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text("👋 Выберите раздел:", reply_markup=reply_markup)
-        
-        context.user_data['state'] = BotState.MAIN_MENU
-        context.user_data['active_groq_mode'] = None
-    
-    return BotState.MAIN_MENU
