@@ -295,7 +295,19 @@ async def referral_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==============================================================================
 # ФУНКЦИЯ НАСТРОЙКИ ОБРАБОТЧИКОВ
 # ==============================================================================
-
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
+    """
+    Показать главное меню (используется из ai_handlers)
+    
+    Args:
+        update: Объект обновления Telegram
+        context: Контекст обработчика
+    
+    Returns:
+        Состояние бота после выполнения
+    """
+    return await start(update, context)
+    
 def setup_commands(application: Application):
     """
     Настройка обработчиков команд для приложения
