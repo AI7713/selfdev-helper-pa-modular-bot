@@ -4,6 +4,7 @@ Webhook server для Render
 import asyncio
 import httpx
 from aiohttp import web
+from telegram import Update
 
 from ..config import logger, TELEGRAM_TOKEN, WEBHOOK_URL, BOT_VERSION
 
@@ -24,27 +25,25 @@ async def health_check(request: web.Request) -> web.Response:
     )
 
 
-async def telegram_webhook_handler(request: web.Request) -> web.Response:
+async def telegram_webhook_handler(request: web.Request, application) -> web.Response:
     """
     Обработчик webhook от Telegram
     
     Args:
         request: HTTP запрос от Telegram
+        application: Уже инициализированное приложение Telegram бота
     
     Returns:
         HTTP ответ
     """
-    from ..app import create_application
-    
     try:
         # Получаем данные из запроса
         data = await request.json()
         
-        # Создаём приложение
-        application = create_application()
+        # Создаём объект Update из данных
+        update = Update.de_json(data, application.bot)
         
-        # Обрабатываем обновление
-        update = type('Update', (), {'to_dict': lambda: data})()
+        # Обрабатываем обновление через инициализированное приложение
         await application.process_update(update)
         
         return web.Response(text="OK", status=200)
@@ -59,7 +58,7 @@ async def setup_web_server(application, port: int, webhook_url: str):
     Настройка и запуск web сервера для Render
     
     Args:
-        application: Приложение Telegram бота
+        application: Приложение Telegram бота (уже инициализированное)
         port: Порт для сервера
         webhook_url: URL для webhook
     """
@@ -79,9 +78,13 @@ async def setup_web_server(application, port: int, webhook_url: str):
     # Создаём aiohttp приложение
     app = web.Application()
     
+    # Создаём замыкание для передачи application в обработчик
+    async def handler(request):
+        return await telegram_webhook_handler(request, application)
+    
     # Добавляем роуты
     app.add_routes([
-        web.post("/", telegram_webhook_handler),
+        web.post("/", handler),
         web.get("/health", health_check),
         web.get("/", health_check)  # Корневой путь тоже health check
     ])
