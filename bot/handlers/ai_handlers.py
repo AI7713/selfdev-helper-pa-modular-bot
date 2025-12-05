@@ -1,5 +1,5 @@
 """
-Обработчики AI запросов к Groq API
+Обработчики AI запросов к Groq API (исправленная версия для модульной архитектуры)
 """
 import asyncio
 from typing import Optional
@@ -15,7 +15,6 @@ from ..config import (
 from ..models import rate_limiter, ai_cache, BotState
 from ..utils import sanitize_user_input, split_message_efficiently
 from .commands import update_usage_stats
-from .commands import show_main_menu
 
 
 # ==============================================================================
@@ -26,13 +25,6 @@ async def send_long_message(chat_id: int, text: str, context: ContextTypes.DEFAU
                           prefix: str = "", parse_mode: str = None):
     """
     Отправка длинных сообщений с разбивкой на части
-    
-    Args:
-        chat_id: ID чата
-        text: Текст сообщения
-        context: Контекст обработчика
-        prefix: Префикс для каждой части
-        parse_mode: Режим парсинга (Markdown, HTML и т.д.)
     """
     parts = split_message_efficiently(text)
     total_parts = len(parts)
@@ -42,17 +34,13 @@ async def send_long_message(chat_id: int, text: str, context: ContextTypes.DEFAU
         await context.bot.send_message(chat_id, f"{part_prefix}{part}", parse_mode=parse_mode)
 
 
-async def handle_groq_request(update: Update, context: ContextTypes.DEFAULT_TYPE,
-                            prompt_key: str, groq_client: Optional[Groq] = None):
+async def handle_groq_request(update: Update, context: ContextTypes.DEFAULT_TYPE, prompt_key: str):
     """
     Обработка запроса к Groq API
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
-        prompt_key: Ключ системного промта
-        groq_client: Клиент Groq API
     """
+    # Получаем groq_client из bot_data
+    groq_client: Optional[Groq] = context.application.bot_data.get('groq_client')
+    
     # Проверяем доступность Groq клиента
     if not groq_client:
         await update.message.reply_text("❌ AI функции временно недоступны. Попробуйте позже.")
@@ -154,13 +142,6 @@ async def handle_groq_request(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def show_demo_scenario(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     """
     Показать демо-сценарий AI инструмента
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
-    
-    Returns:
-        Состояние бота после выполнения
     """
     query = update.callback_query
     await query.answer()
@@ -188,13 +169,6 @@ async def show_demo_scenario(update: Update, context: ContextTypes.DEFAULT_TYPE)
 def get_ai_keyboard(prompt_key: str, back_button: str) -> InlineKeyboardMarkup:
     """
     Создание клавиатуры для AI инструмента
-    
-    Args:
-        prompt_key: Ключ AI инструмента
-        back_button: Callback данные для кнопки "Назад"
-    
-    Returns:
-        Inline клавиатура
     """
     keyboard = [
         [InlineKeyboardButton("💡 Демо-сценарий (что он умеет?)", callback_data=f'demo_{prompt_key}')],
@@ -208,13 +182,6 @@ def get_ai_keyboard(prompt_key: str, back_button: str) -> InlineKeyboardMarkup:
 async def ai_selection_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     """
     Обработчик выбора AI инструмента
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
-    
-    Returns:
-        Состояние бота после выполнения
     """
     query = update.callback_query
     await query.answer()
@@ -252,13 +219,6 @@ async def ai_selection_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 async def activate_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     """
     Активация доступа к AI инструменту
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
-    
-    Returns:
-        Состояние бота после выполнения
     """
     query = update.callback_query
     await query.answer()
@@ -293,13 +253,6 @@ async def activate_access(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def menu_self(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     """
     Обработчик меню "Для себя"
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
-    
-    Returns:
-        Состояние бота после выполнения
     """
     query = update.callback_query
     await query.answer()
@@ -330,13 +283,6 @@ async def menu_self(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotSt
 async def menu_business(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     """
     Обработчик меню "Для дела"
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
-    
-    Returns:
-        Состояние бота после выполнения
     """
     query = update.callback_query
     await query.answer()
@@ -369,35 +315,9 @@ async def menu_business(update: Update, context: ContextTypes.DEFAULT_TYPE) -> B
 async def show_business_menu_from_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Показать бизнес-меню из callback
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
     """
-    keyboard = [
-        [InlineKeyboardButton("📊 Калькулятор маркетплейсов", callback_data='menu_calculator')],
-        [InlineKeyboardButton("🗣️ Переговорщик", callback_data='ai_negotiator_business'),
-         InlineKeyboardButton("🎓 SKILLTRAINER", callback_data='ai_skilltrainer_business')],
-        [InlineKeyboardButton("📝 Редактор", callback_data='ai_editor_business'),
-         InlineKeyboardButton("🎯 Маркетолог", callback_data='ai_marketer_business')],
-        [InlineKeyboardButton("🚀 HR-рекрутер", callback_data='ai_hr_business')],
-        [InlineKeyboardButton("🔙 В главное меню", callback_data='main_menu')]
-    ]
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    if update.callback_query:
-        await update.callback_query.edit_message_text(
-            "🚀 **ДЛЯ ДЕЛА**\nИнструменты для профессионального роста и бизнеса:",
-            reply_markup=reply_markup,
-            parse_mode=ParseMode.MARKDOWN
-        )
-    else:
-        await update.message.reply_text(
-            "🚀 **ДЛЯ ДЕЛА**\nИнструменты для профессионального роста и бизнеса:",
-            reply_markup=reply_markup,
-            parse_mode=ParseMode.MARKDOWN
-        )
+    from .calculator import show_business_menu_from_callback as calc_show
+    return await calc_show(update, context)
 
 
 # ==============================================================================
@@ -407,13 +327,6 @@ async def show_business_menu_from_callback(update: Update, context: ContextTypes
 async def show_progress_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     """
     Обработчик показа прогресса
-    
-    Args:
-        update: Объект обновления Telegram
-        context: Контекст обработчика
-    
-    Returns:
-        Состояние бота после выполнения
     """
     query = update.callback_query
     await query.answer()
@@ -435,28 +348,12 @@ async def show_progress_handler(update: Update, context: ContextTypes.DEFAULT_TY
 # ФУНКЦИЯ НАСТРОЙКИ ОБРАБОТЧИКОВ
 # ==============================================================================
 
-def setup_ai_handlers(application: Application, groq_client: Optional[Groq] = None):
+def setup_ai_handlers(application: Application):
     """
     Настройка обработчиков AI для приложения
-    
-    Args:
-        application: Приложение Telegram бота
-        groq_client: Клиент Groq API
     """
-
-    # ... весь код обработчиков ...
-    
-    logger.info("AI обработчики настроены")
-    
-    # Сохраняем groq_client в контексте приложения для использования в обработчиках
-    # Передаем groq_client через контекст
-    if groq_client:
-        application.user_data['groq_client'] = groq_client
-    else:
-        application.groq_client = None
-
-    
     # Обработчики меню
+    from .commands import show_main_menu
     application.add_handler(CallbackQueryHandler(show_main_menu, pattern='^main_menu$'))
     application.add_handler(CallbackQueryHandler(menu_self, pattern='^menu_self$'))
     application.add_handler(CallbackQueryHandler(menu_business, pattern='^menu_business$'))
@@ -472,5 +369,3 @@ def setup_ai_handlers(application: Application, groq_client: Optional[Groq] = No
     application.add_handler(CallbackQueryHandler(show_progress_handler, pattern='^show_progress$'))
     
     logger.info("AI обработчики настроены")
-    
-   
