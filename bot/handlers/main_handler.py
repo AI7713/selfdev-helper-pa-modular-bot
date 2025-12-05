@@ -58,24 +58,24 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     if current_state == BotState.CALCULATOR:
         await handle_economy_calculator(update, context)
         return BotState.CALCULATOR
+    
     elif context.user_data.get('active_groq_mode'):
-    active_mode = context.user_data['active_groq_mode']
-    
-    # Получаем groq_client из приложения
-    groq_client = None
-    if hasattr(context.application, 'groq_client'):
-        groq_client = context.application.groq_client
-    
-    if groq_client:
-        await handle_groq_request(update, context, active_mode, groq_client)
-    else:
-        await update.message.reply_text(
-            "❌ AI функции временно недоступны. "
-            "Проверьте настройки GROQ_API_KEY."
-        )
-    
-    return BotState.AI_SELECTION
-    
+        active_mode = context.user_data['active_groq_mode']
+        
+        # Получаем groq_client из приложения
+        groq_client = None
+        if hasattr(context.application, 'groq_client'):
+            groq_client = context.application.groq_client
+        
+        if groq_client:
+            await handle_groq_request(update, context, active_mode, groq_client)
+        else:
+            await update.message.reply_text(
+                "❌ AI функции временно недоступны. "
+                "Проверьте настройки GROQ_API_KEY."
+            )
+        
+        return BotState.AI_SELECTION
     
     elif current_state in (BotState.AI_SELECTION, BotState.BUSINESS_MENU):
         await update.message.reply_text(
