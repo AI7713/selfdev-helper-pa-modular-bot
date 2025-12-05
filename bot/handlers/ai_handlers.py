@@ -473,5 +473,4 @@ def setup_ai_handlers(application: Application, groq_client: Optional[Groq] = No
     
     logger.info("AI обработчики настроены")
     
-    # Сохраняем groq_client в контексте приложения для использования в обработчиках
-    application.bot_data['groq_client'] = groq_client
+   
