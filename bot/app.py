@@ -45,7 +45,7 @@ def create_application() -> Application:
     # Создаем приложение
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
-    # ✅ ПРАВИЛЬНОЕ ХРАНЕНИЕ groq_client в bot_data (изменяемый объект)
+    # ✅ Храним groq_client в bot_data — правильное место для глобальных данных
     application.bot_data['groq_client'] = groq_client
 
     # Настраиваем обработчики команд
@@ -57,8 +57,8 @@ def create_application() -> Application:
     # Настраиваем обработчики SKILLTRAINER
     setup_skilltrainer_handlers(application)
     
-    # Настраиваем обработчики AI
-    setup_ai_handlers(application, groq_client)
+    # Настраиваем обработчики AI — БЕЗ передачи groq_client
+    setup_ai_handlers(application)
     
     # Настраиваем основной обработчик текстовых сообщений
     setup_main_handler(application)
