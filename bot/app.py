@@ -93,10 +93,12 @@ async def run_webhook():
     
     application = create_application()
 
-    # ВАЖНО: Инициализируем приложение
+     # ИНИЦИАЛИЗИРУЕМ приложение перед использованием в webhook
     await application.initialize()
+    await application.start()
     
-    # Настраиваем и запускаем web сервер
+    # Настраиваем и запускаем web сервер с УЖЕ ИНИЦИАЛИЗИРОВАННЫМ приложением
+    from .web.server import setup_web_server
     await setup_web_server(application, PORT, WEBHOOK_URL)
 
 
