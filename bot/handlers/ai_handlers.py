@@ -312,14 +312,6 @@ async def menu_business(update: Update, context: ContextTypes.DEFAULT_TYPE) -> B
     return BotState.BUSINESS_MENU
 
 
-async def show_business_menu_from_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Показать бизнес-меню из callback
-    """
-    from .calculator import show_business_menu_from_callback as calc_show
-    return await calc_show(update, context)
-
-
 # ==============================================================================
 # ОБРАБОТЧИК ПРОГРЕССА
 # ==============================================================================
