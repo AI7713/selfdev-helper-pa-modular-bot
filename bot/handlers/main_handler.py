@@ -1,1 +1,106 @@
+"""
+Главный обработчик текстовых сообщений и маршрутизация
+"""
+from telegram import Update
+from telegram.ext import ContextTypes, Application, MessageHandler, filters
+from telegram.constants import ParseMode
 
+from ..config import logger
+from ..models import BotState, active_skill_sessions
+from .ai_handlers import handle_groq_request
+from .calculator import handle_economy_calculator
+from .commands import show_usage_progress, show_referral_program
+
+
+async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
+    """
+    Главный обработчик текстовых сообщений
+    
+    Args:
+        update: Объект обновления Telegram
+        context: Контекст обработчика
+    
+    Returns:
+        Состояние бота после обработки
+    """
+    user_text = update.message.text.strip()
+    user_id = update.message.from_user.id
+    
+    # Обработка кнопок reply-клавиатуры
+    if user_text == "🏠 Меню":
+        from .ai_handlers import show_main_menu
+        return await show_main_menu(update, context)
+    
+    if user_text == "📊 Прогресс":
+        await show_usage_progress(update, context)
+        return context.user_data.get('state', BotState.MAIN_MENU)
+    
+    # Проверка активной сессии SKILLTRAINER
+    if user_id in active_skill_sessions:
+        from .skilltrainer import handle_skilltrainer_response
+        session = active_skill_sessions[user_id]
+        await handle_skilltrainer_response(update, context, session)
+        return context.user_data.get('state', BotState.MAIN_MENU)
+    
+    # Обработка специальных команд в тексте
+    if any(word in user_text.lower() for word in ['пригласи', 'друг', 'реферал', 'ссылка']):
+        await show_referral_program(update, context)
+        return BotState.MAIN_MENU
+    
+    if any(word in user_text.lower() for word in ['прогресс', 'статистика', 'стата']):
+        await show_usage_progress(update, context)
+        return BotState.MAIN_MENU
+    
+    # Получаем текущее состояние бота
+    current_state = context.user_data.get('state', BotState.MAIN_MENU)
+    
+    # Маршрутизация по состояниям
+    if current_state == BotState.CALCULATOR:
+        await handle_economy_calculator(update, context)
+        return BotState.CALCULATOR
+    
+    elif context.user_data.get('active_groq_mode'):
+        active_mode = context.user_data['active_groq_mode']
+        groq_client = getattr(context.application, 'groq_client', None)
+        await handle_groq_request(update, context, active_mode, groq_client)
+        return BotState.AI_SELECTION
+    
+    elif current_state in (BotState.AI_SELECTION, BotState.BUSINESS_MENU):
+        await update.message.reply_text(
+            "❓ Вы отправили текст, но не активировали ни один из ИИ-инструментов. "
+            "Нажмите на кнопку 'Активировать' под нужным инструментом, чтобы начать диалог, "
+            "или 🏠 Меню для возврата."
+        )
+        return current_state
+    
+    else:
+        # Помощь по умолчанию
+        help_text = f"""
+🤖 **Personal Growth AI** v4.0.0-modular
+💡 **Доступные команды:**
+/start - Главное меню  
+/progress - Ваш прогресс и статистика
+🎯 **Быстрый старт:**
+• Напишите "пригласи друга" для реферальной программы
+• Используйте "мой прогресс" для статистики
+• Выберите инструмент из меню
+🚀 **Новый инструмент: SKILLTRAINER**
+Многошаговая сессия развития навыков с гейтами и прогресс-баром!
+"""
+        await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+        return current_state
+
+
+def setup_main_handler(application: Application):
+    """
+    Настройка главного обработчика текстовых сообщений
+    
+    Args:
+        application: Приложение Telegram бота
+    """
+    # Обработчик текстовых сообщений (все сообщения кроме команд)
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)
+    )
+    
+    logger.info("Главный обработчик сообщений настроен")
