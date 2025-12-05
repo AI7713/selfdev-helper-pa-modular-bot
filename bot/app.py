@@ -45,6 +45,9 @@ def create_application() -> Application:
     # Создаем приложение
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
+    # ✅ ПРАВИЛЬНОЕ ХРАНЕНИЕ groq_client в bot_data (изменяемый объект)
+    application.bot_data['groq_client'] = groq_client
+
     # Настраиваем обработчики команд
     setup_commands(application)
     
