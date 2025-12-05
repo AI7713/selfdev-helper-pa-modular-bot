@@ -92,6 +92,9 @@ async def run_webhook():
         return
     
     application = create_application()
+
+    # ВАЖНО: Инициализируем приложение
+    await application.initialize()
     
     # Настраиваем и запускаем web сервер
     await setup_web_server(application, PORT, WEBHOOK_URL)
