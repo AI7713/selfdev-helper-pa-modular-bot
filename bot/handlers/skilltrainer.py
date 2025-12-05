@@ -19,7 +19,7 @@ from ..utils import (
     generate_hud, generate_hint, check_gate, format_finish_packet,
     split_message_efficiently
 )
-from .commands import show_usage_stats, update_usage_stats
+from .commands import update_usage_stats
 from .ai_handlers import send_long_message
 from .calculator import show_business_menu_from_callback
 
