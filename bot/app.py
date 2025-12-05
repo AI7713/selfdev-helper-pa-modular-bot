@@ -20,6 +20,7 @@ from .handlers.commands import setup_commands
 from .handlers.calculator import setup_calculator_handlers
 from .handlers.skilltrainer import setup_skilltrainer_handlers
 from .handlers.ai_handlers import setup_ai_handlers
+from .handlers.main_handler import setup_main_handler
 from .web.server import setup_web_server
 
 
@@ -34,6 +35,9 @@ if GROQ_API_KEY:
 else:
     logger.warning("GROQ_API_KEY не установлен. Функции AI будут недоступны.")
 
+# Сохраняем groq_client глобально для использования в обработчиках
+GLOBAL_GROQ_CLIENT = groq_client
+
 
 def create_application() -> Application:
     """
@@ -42,6 +46,9 @@ def create_application() -> Application:
     Returns:
         Настроенное приложение
     """
+    # Используем глобальный groq_client
+    global GLOBAL_GROQ_CLIENT
+    
     if not TELEGRAM_TOKEN:
         logger.error("❌ TELEGRAM_TOKEN не установлен. Запуск невозможен.")
         raise ValueError("TELEGRAM_TOKEN не установлен")
@@ -59,68 +66,10 @@ def create_application() -> Application:
     setup_skilltrainer_handlers(application)
     
     # Настраиваем обработчики AI
-    setup_ai_handlers(application, groq_client)
+    setup_ai_handlers(application, GLOBAL_GROQ_CLIENT)
     
     # Настраиваем основной обработчик текстовых сообщений
-    from .handlers.main_handler import setup_main_handler
     setup_main_handler(application)
     
     logger.info(f"{BOT_VERSION} - Приложение создано и настроено")
     return application
-
-
-async def run_polling():
-    """
-    Запуск бота в режиме polling (для локальной разработки)
-    """
-    application = create_application()
-    logger.info(f"{BOT_VERSION} - Запуск в режиме polling...")
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
-    
-    # Бесконечный цикл
-    await asyncio.Future()
-
-
-async def run_webhook():
-    """
-    Запуск бота в режиме webhook (для продакшена на Render)
-    """
-    if not WEBHOOK_URL:
-        logger.error("❌ WEBHOOK_URL не установлен. Webhook режим невозможен.")
-        return
-    
-    application = create_application()
-
-     # ИНИЦИАЛИЗИРУЕМ приложение перед использованием в webhook
-    await application.initialize()
-    await application.start()
-    
-    # Настраиваем и запускаем web сервер с УЖЕ ИНИЦИАЛИЗИРОВАННЫМ приложением
-    from .web.server import setup_web_server
-    await setup_web_server(application, PORT, WEBHOOK_URL)
-
-
-def run_bot():
-    """
-    Основная функция запуска бота
-    
-    Определяет режим запуска на основе переменных окружения:
-    - Если есть WEBHOOK_URL и PORT → webhook режим (для Render)
-    - Иначе → polling режим (для локальной разработки)
-    """
-    logger.info(f"{BOT_VERSION} - Starting bot with SKILLTRAINER and security improvements...")
-    
-    # Проверка необходимых переменных окружения
-    if not TELEGRAM_TOKEN:
-        logger.error("❌ TELEGRAM_TOKEN не установлен. Запуск невозможен.")
-        return
-    
-    # Определяем режим запуска
-    if WEBHOOK_URL and PORT:
-        logger.info(f"{BOT_VERSION} - Запуск в режиме webhook (Render)")
-        asyncio.run(run_webhook())
-    else:
-        logger.info(f"{BOT_VERSION} - Запуск в режиме polling (локальная разработка)")
-        asyncio.run(run_polling())
