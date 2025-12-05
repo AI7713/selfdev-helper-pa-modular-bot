@@ -1,5 +1,5 @@
 """
-Webhook server для Render
+Webhook server для Render (исправленная версия)
 """
 import asyncio
 import httpx
@@ -10,9 +10,6 @@ from ..config import logger, TELEGRAM_TOKEN, WEBHOOK_URL, BOT_VERSION
 
 
 async def health_check(request: web.Request) -> web.Response:
-    """
-    Health check endpoint для Render
-    """
     return web.Response(
         text=f"✅ Bot {BOT_VERSION} is running",
         status=200
@@ -20,9 +17,6 @@ async def health_check(request: web.Request) -> web.Response:
 
 
 async def telegram_webhook_handler(request: web.Request, application) -> web.Response:
-    """
-    Обработчик webhook от Telegram
-    """
     try:
         data = await request.json()
         update = Update.de_json(data, application.bot)
@@ -34,10 +28,11 @@ async def telegram_webhook_handler(request: web.Request, application) -> web.Res
 
 
 async def setup_web_server(application, port: int, webhook_url: str):
-    """
-    Настройка и запуск web сервера для Render
-    """
-    # ✅ ИСПРАВЛЕННЫЙ URL: убраны пробелы после 'bot'
+    # ✅ Инициализируем и запускаем application ДО установки webhook
+    await application.initialize()
+    await application.start()
+
+    # Устанавливаем webhook
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
@@ -49,8 +44,8 @@ async def setup_web_server(application, port: int, webhook_url: str):
             logger.error(f"{BOT_VERSION} - ❌ Ошибка установки Webhook: {response.text}")
             return
 
+    # Запускаем AIOHTTP сервер
     app = web.Application()
-    
     async def handler(request):
         return await telegram_webhook_handler(request, application)
     
@@ -68,4 +63,4 @@ async def setup_web_server(application, port: int, webhook_url: str):
     logger.info(f"{BOT_VERSION} - 🚀 AIOHTTP Server запущен на порту {port}")
     logger.info(f"{BOT_VERSION} - ✅ Бот готов к работе!")
     
-    await asyncio.Future()
+    await asyncio.Future()  # бесконечный цикл
