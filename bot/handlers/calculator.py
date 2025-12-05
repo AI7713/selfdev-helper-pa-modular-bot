@@ -179,13 +179,14 @@ async def handle_economy_calculator(update: Update, context: ContextTypes.DEFAUL
     step = context.user_data.get('calculator_step', 0)
     
     if text == "🔙 Назад":
-        if step == 0:
-            context.user_data['state'] = BotState.BUSINESS_MENU
-            await show_business_menu_from_callback(update, context)
-        else:
-            context.user_data['calculator_step'] = step - 1
-            await update.message.reply_text(CALCULATOR_STEPS[step - 1])
-        return
+    if step == 0:
+        # Возвращаемся в главное меню через /start
+        from .commands import start
+        return await start(update, context)
+    else:
+        context.user_data['calculator_step'] = step - 1
+        await update.message.reply_text(CALCULATOR_STEPS[step - 1])
+    return
     
     if text == "🔄 Новый расчет":
         context.user_data['calculator_step'] = 0
