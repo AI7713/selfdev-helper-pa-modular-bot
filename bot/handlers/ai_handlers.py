@@ -1,20 +1,18 @@
 """
-Обработчики AI запросов к Groq API (полная версия из v3.3.5, адаптированная под модульную архитектуру)
+Обработчики AI запросов к Groq API (исправленная версия для нового главного меню)
 """
 import asyncio
 from typing import Optional
-
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, Application, CallbackQueryHandler
 from telegram.constants import ParseMode
 from groq import Groq, APIError
-
 from ..config import (
     logger, SYSTEM_PROMPTS, DEMO_SCENARIOS
 )
 from ..models import rate_limiter, ai_cache, BotState
 from ..utils import sanitize_user_input, split_message_efficiently
-from .commands import update_usage_stats, show_main_menu  # ← ИМПОРТИРУЕМ show_main_menu
+from .commands import update_usage_stats
 
 
 # ==============================================================================
@@ -98,7 +96,7 @@ async def handle_groq_request(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 # ==============================================================================
-# ОБРАБОТЧИКИ МЕНЮ
+# ОБРАБОТЧИКИ МЕНЮ И ВЫБОРА AI ИНСТРУМЕНТОВ
 # ==============================================================================
 
 async def show_demo_scenario(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
@@ -106,22 +104,21 @@ async def show_demo_scenario(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     demo_key = query.data.split('_')[1]
     text_content = DEMO_SCENARIOS.get(demo_key, "⚠️ Описание демо-сценария не найдено.")
-    back_to_menu_key = 'menu_self'
-    if context.user_data.get('state') == BotState.BUSINESS_MENU:
-        back_to_menu_key = 'menu_business'
-    keyboard = [[InlineKeyboardButton("🔙 Назад к выбору AI", callback_data=back_to_menu_key)]]
+    # ВСЕГДА возвращаем в главное меню
+    keyboard = [[InlineKeyboardButton("🔙 Назад к выбору AI", callback_data='main_menu')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(text_content, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
-    context.user_data['state'] = BotState.AI_SELECTION if back_to_menu_key == 'menu_self' else BotState.BUSINESS_MENU
-    return context.user_data['state']
+    context.user_data['state'] = BotState.AI_SELECTION
+    return BotState.AI_SELECTION
 
 
-def get_ai_keyboard(prompt_key: str, back_button: str) -> InlineKeyboardMarkup:
+def get_ai_keyboard(prompt_key: str) -> InlineKeyboardMarkup:
+    """Упрощённая клавиатура: «Назад» ведёт только в главное меню"""
     keyboard = [
         [InlineKeyboardButton("💡 Демо-сценарий (что он умеет?)", callback_data=f'demo_{prompt_key}')],
-        [InlineKeyboardButton("✅ Активировать платный доступ (10 кнопок)", callback_data=f'activate_{prompt_key}')],
+        [InlineKeyboardButton("✅ Активировать", callback_data=f'activate_{prompt_key}')],
         [InlineKeyboardButton("📊 Мой прогресс", callback_data='show_progress')],
-        [InlineKeyboardButton("🔙 Назад", callback_data=back_button)]
+        [InlineKeyboardButton("🔙 В главное меню", callback_data='main_menu')]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -132,11 +129,7 @@ async def ai_selection_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     callback_data = query.data
     prompt_key = callback_data.split('_')[1]
     context.user_data['current_ai_key'] = prompt_key
-    if callback_data.endswith('_self'):
-        back_button = 'menu_self'
-    else:
-        back_button = 'menu_business'
-    reply_markup = get_ai_keyboard(prompt_key, back_button)
+    reply_markup = get_ai_keyboard(prompt_key)
     await query.edit_message_text(
         f"Вы выбрали **{prompt_key.capitalize()}**.\n"
         f"Чтобы начать, изучите демо-сценарий или активируйте доступ.",
@@ -167,52 +160,6 @@ async def activate_access(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     return BotState.AI_SELECTION
 
 
-async def menu_self(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    query = update.callback_query
-    await query.answer()
-    keyboard = [
-        [InlineKeyboardButton("🔮 Гримуар", callback_data='ai_grimoire_self'),
-         InlineKeyboardButton("📈 Аналитик", callback_data='ai_analyzer_self')],
-        [InlineKeyboardButton("🧘 Коуч", callback_data='ai_coach_self'),
-         InlineKeyboardButton("💡 Генератор", callback_data='ai_generator_self')],
-        [InlineKeyboardButton("📊 Мой прогресс", callback_data='show_progress')],
-        [InlineKeyboardButton("🔙 В главное меню", callback_data='main_menu')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(
-        "Вы выбрали *Для себя*. Выберите ИИ-инструмент:",
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN
-    )
-    context.user_data['state'] = BotState.AI_SELECTION
-    context.user_data['active_groq_mode'] = None
-    return BotState.AI_SELECTION
-
-
-async def menu_business(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    query = update.callback_query
-    await query.answer()
-    keyboard = [
-        [InlineKeyboardButton("📊 Калькулятор маркетплейсов", callback_data='menu_calculator')],
-        [InlineKeyboardButton("🗣️ Переговорщик", callback_data='ai_negotiator_business'),
-         InlineKeyboardButton("🎓 SKILLTRAINER", callback_data='ai_skilltrainer_business')],
-        [InlineKeyboardButton("📝 Редактор", callback_data='ai_editor_business'),
-         InlineKeyboardButton("🎯 Маркетолог", callback_data='ai_marketer_business')],
-        [InlineKeyboardButton("🚀 HR-рекрутер", callback_data='ai_hr_business')],
-        [InlineKeyboardButton("📊 Мой прогресс", callback_data='show_progress')],
-        [InlineKeyboardButton("🔙 В главное меню", callback_data='main_menu')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(
-        "Вы выбрали *Для дела*. Выберите инструмент:",
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN
-    )
-    context.user_data['state'] = BotState.BUSINESS_MENU
-    context.user_data['active_groq_mode'] = None
-    return BotState.BUSINESS_MENU
-
-
 # ==============================================================================
 # ОБРАБОТЧИК ПРОГРЕССА
 # ==============================================================================
@@ -220,12 +167,12 @@ async def menu_business(update: Update, context: ContextTypes.DEFAULT_TYPE) -> B
 async def show_progress_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     query = update.callback_query
     await query.answer()
-    user_id = query.from_user.id
     from .commands import show_usage_progress, get_personal_recommendation
     await show_usage_progress(update, context)
+    user_id = query.from_user.id
     recommendation = await get_personal_recommendation(user_id)
     await query.message.reply_text(recommendation, parse_mode=ParseMode.MARKDOWN)
-    return context.user_data.get('state', BotState.MAIN_MENU)
+    return BotState.MAIN_MENU
 
 
 # ==============================================================================
@@ -234,23 +181,16 @@ async def show_progress_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
 def setup_ai_handlers(application: Application):
     """
-    Настройка ВСЕХ AI-обработчиков
+    Настройка AI-обработчиков (без старых menu_self/menu_business)
     """
-    # Главное меню — РЕГИСТРИРУЕМ ОБЯЗАТЕЛЬНО
+    # Единственный обработчик главного меню — из commands.py
+    from .commands import show_main_menu
     application.add_handler(CallbackQueryHandler(show_main_menu, pattern='^main_menu$'))
     
-    # Меню выбора
-    application.add_handler(CallbackQueryHandler(menu_self, pattern='^menu_self$'))
-    application.add_handler(CallbackQueryHandler(menu_business, pattern='^menu_business$'))
-    
-    # Выбор AI-инструмента
+    # Остальные обработчики
     application.add_handler(CallbackQueryHandler(ai_selection_handler, pattern='^ai_.*_self$|^ai_.*_business$'))
-    
-    # Демо и активация
     application.add_handler(CallbackQueryHandler(show_demo_scenario, pattern='^demo_.*$'))
     application.add_handler(CallbackQueryHandler(activate_access, pattern='^activate_.*$'))
-    
-    # Прогресс
     application.add_handler(CallbackQueryHandler(show_progress_handler, pattern='^show_progress$'))
     
     logger.info("AI обработчики настроены")
