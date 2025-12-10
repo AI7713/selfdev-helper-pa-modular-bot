@@ -1,5 +1,5 @@
 """
-Обработчики AI запросов к Groq API (исправленная версия для нового главного меню)
+Обработчики AI запросов к Groq API (с поддержкой кэша истории на 15 шагов)
 """
 import asyncio
 from typing import Optional
@@ -7,10 +7,12 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, Application, CallbackQueryHandler
 from telegram.constants import ParseMode
 from groq import Groq, APIError
+from datetime import datetime, timedelta
+
 from ..config import (
     logger, SYSTEM_PROMPTS, DEMO_SCENARIOS
 )
-from ..models import rate_limiter, ai_cache, BotState
+from ..models import rate_limiter, ai_cache, BotState, user_conversation_history
 from ..utils import sanitize_user_input, split_message_efficiently
 from .commands import update_usage_stats
 
@@ -36,16 +38,38 @@ async def handle_groq_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not update.message:
         return
     user_id = update.message.from_user.id
+
+    # === ПРОВЕРКА TTL И ОЧИСТКА ИСТОРИИ ===
+    now = datetime.now()
+    if user_id in user_conversation_history:
+        last_activity = user_conversation_history[user_id]["last_activity"]
+        if now - last_activity > timedelta(hours=1):
+            del user_conversation_history[user_id]
+        else:
+            user_conversation_history[user_id]["last_activity"] = now
+    else:
+        user_conversation_history[user_id] = {
+            "history": [],
+            "last_activity": now
+        }
+
     if not rate_limiter.is_allowed(user_id):
         await update.message.reply_text("🚫 Слишком много запросов. Подождите минуту.")
         return
+
     user_query = sanitize_user_input(update.message.text)
     system_prompt = SYSTEM_PROMPTS.get(prompt_key, "Вы — полезный ассистент.")
+
+    # === СОБИРАЕМ ИСТОРИЮ (МАКС. 15 СООБЩЕНИЙ) ===
+    history = user_conversation_history[user_id]["history"][-15:]  # последние 15 сообщений
+
     await update.message.chat.send_message(
         f"⌛ **{prompt_key.capitalize()}** обрабатывает ваш запрос...",
         parse_mode=ParseMode.MARKDOWN
     )
+
     try:
+        # Проверяем кэш (без истории — только текущий запрос)
         cached_response = ai_cache.get_cached_response(prompt_key, user_query)
         if cached_response:
             await send_long_message(
@@ -57,16 +81,27 @@ async def handle_groq_request(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             await update_usage_stats(user_id, 'ai')
             return
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_query}
-        ]
+
+        # === ОТПРАВЛЯЕМ В GROQ: SYSTEM + ИСТОРИЯ + ТЕКУЩИЙ ЗАПРОС ===
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(history)
+        messages.append({"role": "user", "content": user_query})
+
         chat_completion = groq_client.chat.completions.create(
             messages=messages,
             model="llama-3.1-8b-instant",
             max_tokens=4000
         )
         ai_response = chat_completion.choices[0].message.content
+
+        # === СОХРАНЯЕМ В ИСТОРИЮ ===
+        user_conversation_history[user_id]["history"].extend([
+            {"role": "user", "content": user_query},
+            {"role": "assistant", "content": ai_response}
+        ])
+        # Ограничиваем 15 сообщениями
+        user_conversation_history[user_id]["history"] = user_conversation_history[user_id]["history"][-15:]
+
         ai_cache.cache_response(prompt_key, user_query, ai_response)
         await send_long_message(
             update.message.chat.id,
@@ -76,6 +111,7 @@ async def handle_groq_request(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode=None
         )
         await update_usage_stats(user_id, 'ai')
+
     except APIError as e:
         logger.error(f"ОШИБКА GROQ API: {e}")
         if e.status_code == 429:
@@ -96,7 +132,7 @@ async def handle_groq_request(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 # ==============================================================================
-# ОБРАБОТЧИКИ МЕНЮ И ВЫБОРА AI ИНСТРУМЕНТОВ
+# ОСТАЛЬНЫЕ ФУНКЦИИ (БЕЗ ИЗМЕНЕНИЙ)
 # ==============================================================================
 
 async def show_demo_scenario(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
@@ -160,10 +196,6 @@ async def activate_access(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     return BotState.AI_SELECTION
 
 
-# ==============================================================================
-# ОБРАБОТЧИК ПРОГРЕССА
-# ==============================================================================
-
 async def show_progress_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     query = update.callback_query
     await query.answer()
@@ -186,11 +218,9 @@ def setup_ai_handlers(application: Application):
     # Единственный обработчик главного меню — из commands.py
     from .commands import show_main_menu
     application.add_handler(CallbackQueryHandler(show_main_menu, pattern='^main_menu$'))
-    
     # Остальные обработчики
     application.add_handler(CallbackQueryHandler(ai_selection_handler, pattern='^ai_.*_self$|^ai_.*_business$'))
     application.add_handler(CallbackQueryHandler(show_demo_scenario, pattern='^demo_.*$'))
     application.add_handler(CallbackQueryHandler(activate_access, pattern='^activate_.*$'))
     application.add_handler(CallbackQueryHandler(show_progress_handler, pattern='^show_progress$'))
-    
     logger.info("AI обработчики настроены")
