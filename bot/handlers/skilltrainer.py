@@ -6,13 +6,15 @@ from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, Application, CallbackQueryHandler
 from telegram.constants import ParseMode
+
 from ..config import (
     logger, SKILLTRAINER_QUESTIONS, TRAINING_MODE_DESCRIPTIONS,
     SYSTEM_PROMPTS, SKILLTRAINER_GATES, SKILLTRAINER_VERSION
 )
 from ..models import (
     SkillSession, SessionState, TrainingMode,
-    active_skill_sessions, BotState
+    active_skill_sessions, BotState,
+    user_conversation_history  # ← НОВОЕ: кэш истории
 )
 from ..utils import (
     generate_hud, generate_hint, check_gate, format_finish_packet,
@@ -29,12 +31,19 @@ async def start_skilltrainer_session(update: Update, context: ContextTypes.DEFAU
     """Запуск новой сессии SKILLTRAINER"""
     query = update.callback_query
     user_id = query.from_user.id
+
+    # Очищаем активные сессии если есть
     if user_id in active_skill_sessions:
         del active_skill_sessions[user_id]
+
+    # Удаляем историю разговора при начале новой сессии
+    user_conversation_history.clear_history(user_id)
+
     session = SkillSession(user_id)
     active_skill_sessions[user_id] = session
     context.user_data['active_groq_mode'] = None
     context.user_data['state'] = BotState.BUSINESS_MENU
+
     logger.info(f"Started SKILLTRAINER session for user {user_id}")
     await send_skilltrainer_question(update, context, session)
 
@@ -42,12 +51,13 @@ async def start_skilltrainer_session(update: Update, context: ContextTypes.DEFAU
 async def send_skilltrainer_question(update: Update, context: ContextTypes.DEFAULT_TYPE, session: SkillSession):
     """Отправка текущего вопроса SKILLTRAINER с HUD"""
     hud = generate_hud(session)
+
     if session.current_step >= len(SKILLTRAINER_QUESTIONS):
         await finish_skilltrainer_interview(update, context, session)
         return
 
     question = SKILLTRAINER_QUESTIONS[session.current_step]
-    
+
     if session.current_step == 6:  # Выбор режима — только через callback
         keyboard = [
             [InlineKeyboardButton("🎭 Sim", callback_data="st_mode_sim"),
@@ -59,6 +69,7 @@ async def send_skilltrainer_question(update: Update, context: ContextTypes.DEFAU
             [InlineKeyboardButton("❌ Отмена", callback_data="st_cancel")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
+
         if update.callback_query:
             await update.callback_query.edit_message_text(
                 f"{hud}\n{question}\n**Выберите режим тренировки:**",
@@ -72,7 +83,7 @@ async def send_skilltrainer_question(update: Update, context: ContextTypes.DEFAU
                 parse_mode=ParseMode.MARKDOWN
             )
     else:
-        # Обычный вопрос — отправляем как текст (markdown допустим, т.к. это шаблон)
+        # Обычный вопрос — отправляем как текст
         if update.callback_query:
             await update.callback_query.edit_message_text(
                 f"{hud}\n{question}",
@@ -97,6 +108,8 @@ async def handle_skilltrainer_response(update: Update, context: ContextTypes.DEF
     if user_text.lower() in ['отмена', 'cancel', 'стоп', 'stop']:
         if user_id in active_skill_sessions:
             del active_skill_sessions[user_id]
+        # Удаляем историю разговора при отмене
+        user_conversation_history.clear_history(user_id)
         await update.message.reply_text("❌ Сессия SKILLTRAINER отменена.")
         from .calculator import show_business_menu_from_callback
         await show_business_menu_from_callback(update, context)
@@ -132,13 +145,14 @@ async def handle_skilltrainer_mode(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+
     if user_id not in active_skill_sessions:
         await query.edit_message_text("❌ Сессия не найдена. Начните заново через меню.")
         return
 
     session = active_skill_sessions[user_id]
     mode_data = query.data.replace('st_mode_', '')
-    
+
     if mode_data == 'info':
         descriptions_text = "**📚 ОПИСАНИЯ РЕЖИМОВ ТРЕНИРОВКИ:**\n"
         for description in TRAINING_MODE_DESCRIPTIONS.values():
@@ -157,6 +171,8 @@ async def handle_skilltrainer_mode(update: Update, context: ContextTypes.DEFAULT
     if mode_data == 'cancel':
         if user_id in active_skill_sessions:
             del active_skill_sessions[user_id]
+        # Удаляем историю разговора при отмене
+        user_conversation_history.clear_history(user_id)
         await query.edit_message_text("❌ Сессия SKILLTRAINER отменена.")
         from .calculator import show_business_menu_from_callback
         await show_business_menu_from_callback(update, context)
@@ -169,7 +185,7 @@ async def handle_skilltrainer_mode(update: Update, context: ContextTypes.DEFAULT
         'case': TrainingMode.CASE,
         'quiz': TrainingMode.QUIZ
     }
-    
+
     if mode_data in mode_map:
         session.selected_mode = mode_map[mode_data]
         session.current_step = 7
@@ -190,7 +206,7 @@ async def start_training_session(update: Update, context: ContextTypes.DEFAULT_T
         TrainingMode.CASE: "📋 **РЕЖИМ: CASE (Кейс)**\nСейчас мы разберем реальный кейс применения вашего навыка. Готовы к анализу?",
         TrainingMode.QUIZ: "❓ **РЕЖИМ: QUIZ (Тест)**\nСейчас я задам вопросы для проверки ваших знаний. Готовы к тесту?"
     }
-    
+
     prompt = training_prompts.get(session.selected_mode, "Начинаем тренировку...")
     keyboard = [
         [InlineKeyboardButton("✅ Начать тренировку", callback_data="st_start_training")],
@@ -198,7 +214,7 @@ async def start_training_session(update: Update, context: ContextTypes.DEFAULT_T
         [InlineKeyboardButton("❌ Завершить", callback_data="st_finish_early")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     if update.callback_query:
         await update.callback_query.edit_message_text(
             f"{hud}\n{prompt}",
@@ -229,6 +245,7 @@ async def handle_training_start(update: Update, context: ContextTypes.DEFAULT_TY
 
     session = active_skill_sessions[user_id]
     session.state = SessionState.TRAINING
+
     groq_client = context.application.bot_data.get('groq_client')
 
     if groq_client:
@@ -278,12 +295,10 @@ async def handle_training_start(update: Update, context: ContextTypes.DEFAULT_TY
                 [InlineKeyboardButton("🏁 Завершить сессию", callback_data="st_finish_session")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-
-            # ✅ ИСПРАВЛЕНО: parse_mode=None (без Markdown)
             await query.edit_message_text(
                 f"{generate_hud(session)}\n{training_task}",
                 reply_markup=reply_markup,
-                parse_mode=None  # ← КЛЮЧЕВОЕ ИЗМЕНЕНИЕ
+                parse_mode=ParseMode.MARKDOWN
             )
         except Exception as e:
             logger.error(f"Ошибка генерации задания SKILLTRAINER: {e}")
@@ -307,7 +322,7 @@ async def finish_skilltrainer_session(update: Update, context: ContextTypes.DEFA
     if not session:
         user_id = update.callback_query.from_user.id if update.callback_query else update.message.from_user.id
         session = active_skill_sessions.get(user_id)
-    
+
     if not session:
         if update.callback_query:
             await update.callback_query.edit_message_text("❌ Сессия не найдена.")
@@ -315,6 +330,7 @@ async def finish_skilltrainer_session(update: Update, context: ContextTypes.DEFA
 
     session.state = SessionState.FINISH
     session.progress = 1.0
+
     groq_client = context.application.bot_data.get('groq_client')
 
     if groq_client:
@@ -338,12 +354,11 @@ async def finish_skilltrainer_session(update: Update, context: ContextTypes.DEFA
                 {"role": "system", "content": SYSTEM_PROMPTS['skilltrainer']},
                 {"role": "user", "content": finish_request}
             ]
-            
             if update.callback_query:
                 await update.callback_query.edit_message_text(f"{generate_hud(session)}\n🎓 Формирую Finish Packet...")
             elif update.message:
                 await update.message.reply_text(f"{generate_hud(session)}\n🎓 Формирую Finish Packet...")
-            
+
             chat_completion = groq_client.chat.completions.create(
                 messages=messages,
                 model="llama-3.1-8b-instant",
@@ -353,8 +368,11 @@ async def finish_skilltrainer_session(update: Update, context: ContextTypes.DEFA
             session.finish_packet = format_finish_packet(session, ai_response)
             await update_usage_stats(session.user_id, 'skilltrainer')
 
-            if session.user_id in active_skill_sessions:
-                del active_skill_sessions[session.user_id]
+            # Удаляем сессию и историю разговора при завершении
+            user_id = session.user_id
+            if user_id in active_skill_sessions:
+                del active_skill_sessions[user_id]
+            user_conversation_history.clear_history(user_id)
 
             # Финальное меню
             keyboard = [
@@ -364,13 +382,12 @@ async def finish_skilltrainer_session(update: Update, context: ContextTypes.DEFA
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-            # ✅ ИСПРАВЛЕНО: отправка Finish Packet без Markdown
             parts = split_message_efficiently(session.finish_packet)
             for part in parts:
                 if update.callback_query:
-                    await update.callback_query.message.reply_text(part, parse_mode=None)
+                    await update.callback_query.message.reply_text(part)
                 elif update.message:
-                    await update.message.reply_text(part, parse_mode=None)
+                    await update.message.reply_text(part)
 
             if update.callback_query:
                 await update.callback_query.message.reply_text(
