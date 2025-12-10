@@ -1,13 +1,12 @@
 """
-Главный обработчик текстовых сообщений и маршрутизация
+Главный обработчик текстовых сообщений и маршрутизация (с TTL = 1 час для кэша истории)
 """
 from telegram import Update
 from telegram.ext import ContextTypes, Application, MessageHandler, filters
 from telegram.constants import ParseMode
-
+from datetime import datetime, timedelta
 from ..config import logger
-from ..models import BotState, active_skill_sessions
-
+from ..models import BotState, active_skill_sessions, user_conversation_history
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     """
@@ -16,11 +15,18 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_text = update.message.text.strip()
     user_id = update.message.from_user.id
 
+    # === ПРОВЕРКА TTL = 1 ЧАС ===
+    if user_id in user_conversation_history:
+        last_activity = user_conversation_history[user_id]["last_activity"]
+        if datetime.now() - last_activity > timedelta(hours=1):
+            del user_conversation_history[user_id]
+        else:
+            user_conversation_history[user_id]["last_activity"] = datetime.now()
+
     # Обработка кнопок reply-клавиатуры
     if user_text == "🏠 Меню":
         from .commands import start
         return await start(update, context)
-
     if user_text == "📊 Прогресс":
         from .commands import show_usage_progress
         await show_usage_progress(update, context)
@@ -84,7 +90,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 """
         await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
         return current_state
-
 
 def setup_main_handler(application: Application):
     """
