@@ -7,6 +7,9 @@ from telegram.constants import ParseMode
 
 from ..config import logger
 from ..models import BotState, active_skill_sessions
+from .commands import show_usage_progress, show_referral_program, help_command
+from .ai_handlers import handle_groq_request
+from .calculator import handle_economy_calculator
 
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
@@ -22,8 +25,12 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         return await start(update, context)
 
     if user_text == "📊 Прогресс":
-        from .commands import show_usage_progress
         await show_usage_progress(update, context)
+        return context.user_data.get('state', BotState.MAIN_MENU)
+
+    # НОВОЕ: Обработка кнопки "❓ Команды"
+    if user_text == "❓ Команды":
+        await help_command(update, context)
         return context.user_data.get('state', BotState.MAIN_MENU)
 
     # Проверка активной сессии SKILLTRAINER
@@ -35,12 +42,10 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     # Обработка специальных команд в тексте
     if any(word in user_text.lower() for word in ['пригласи', 'друг', 'реферал', 'ссылка']):
-        from .commands import show_referral_program
         await show_referral_program(update, context)
         return BotState.MAIN_MENU
 
     if any(word in user_text.lower() for word in ['прогресс', 'статистика', 'стата']):
-        from .commands import show_usage_progress
         await show_usage_progress(update, context)
         return BotState.MAIN_MENU
 
@@ -49,13 +54,11 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     # Маршрутизация по состояниям
     if current_state == BotState.CALCULATOR:
-        from .calculator import handle_economy_calculator
         await handle_economy_calculator(update, context)
         return BotState.CALCULATOR
 
     elif context.user_data.get('active_groq_mode'):
         active_mode = context.user_data['active_groq_mode']
-        from .ai_handlers import handle_groq_request
         await handle_groq_request(update, context, active_mode)
         return BotState.AI_SELECTION
 
@@ -71,17 +74,18 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Помощь по умолчанию
         from ..config import BOT_VERSION
         help_text = f"""
-🤖 **Personal Growth AI** {BOT_VERSION}
+🤖 **Personal Growth AI** v{BOT_VERSION}
 💡 **Доступные команды:**
 /start - Главное меню  
 /progress - Ваш прогресс и статистика
+/help - Помощь и список команд
 🎯 **Быстрый старт:**
 • Напишите "пригласи друга" для реферальной программы
 • Используйте "мой прогресс" для статистики
 • Выберите инструмент из меню
 🚀 **Новый инструмент: SKILLTRAINER**
 Многошаговая сессия развития навыков с гейтами и прогресс-баром!
-"""
+        """
         await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
         return current_state
 
