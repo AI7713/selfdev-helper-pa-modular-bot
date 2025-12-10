@@ -30,7 +30,7 @@ async def start_skilltrainer_session(update: Update, context: ContextTypes.DEFAU
     """Запуск новой сессии SKILLTRAINER"""
     query = update.callback_query
     user_id = query.from_user.id
-    if user_name in active_skill_sessions:
+    if user_id in active_skill_sessions:
         del active_skill_sessions[user_id]
     # === ОЧИСТКА ИСТОРИИ ПРИ НОВОЙ СЕССИИ ===
     if user_id in user_conversation_history:
