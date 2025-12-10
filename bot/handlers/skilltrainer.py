@@ -1,8 +1,9 @@
 """
-Полноценный обработчик SKILLTRAINER (на основе v3.3.5, адаптированный под модульную архитектуру)
+Полноценный обработчик SKILLTRAINER (с поддержкой кэша истории на 15 шагов)
 """
 import random
 from typing import Optional
+from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, Application, CallbackQueryHandler
 from telegram.constants import ParseMode
@@ -12,7 +13,7 @@ from ..config import (
 )
 from ..models import (
     SkillSession, SessionState, TrainingMode,
-    active_skill_sessions, BotState
+    active_skill_sessions, BotState, user_conversation_history
 )
 from ..utils import (
     generate_hud, generate_hint, check_gate, format_finish_packet,
@@ -29,8 +30,11 @@ async def start_skilltrainer_session(update: Update, context: ContextTypes.DEFAU
     """Запуск новой сессии SKILLTRAINER"""
     query = update.callback_query
     user_id = query.from_user.id
-    if user_id in active_skill_sessions:
+    if user_name in active_skill_sessions:
         del active_skill_sessions[user_id]
+    # === ОЧИСТКА ИСТОРИИ ПРИ НОВОЙ СЕССИИ ===
+    if user_id in user_conversation_history:
+        del user_conversation_history[user_id]
     session = SkillSession(user_id)
     active_skill_sessions[user_id] = session
     context.user_data['active_groq_mode'] = None
@@ -72,7 +76,7 @@ async def send_skilltrainer_question(update: Update, context: ContextTypes.DEFAU
                 parse_mode=ParseMode.MARKDOWN
             )
     else:
-        # Обычный вопрос — отправляем как текст (markdown допустим, т.к. это шаблон)
+        # Обычный вопрос — отправляем как текст
         if update.callback_query:
             await update.callback_query.edit_message_text(
                 f"{hud}\n{question}",
@@ -97,6 +101,9 @@ async def handle_skilltrainer_response(update: Update, context: ContextTypes.DEF
     if user_text.lower() in ['отмена', 'cancel', 'стоп', 'stop']:
         if user_id in active_skill_sessions:
             del active_skill_sessions[user_id]
+        # === ОЧИСТКА ИСТОРИИ ===
+        if user_id in user_conversation_history:
+            del user_conversation_history[user_id]
         await update.message.reply_text("❌ Сессия SKILLTRAINER отменена.")
         from .calculator import show_business_menu_from_callback
         await show_business_menu_from_callback(update, context)
@@ -132,6 +139,7 @@ async def handle_skilltrainer_mode(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+
     if user_id not in active_skill_sessions:
         await query.edit_message_text("❌ Сессия не найдена. Начните заново через меню.")
         return
@@ -157,6 +165,9 @@ async def handle_skilltrainer_mode(update: Update, context: ContextTypes.DEFAULT
     if mode_data == 'cancel':
         if user_id in active_skill_sessions:
             del active_skill_sessions[user_id]
+        # === ОЧИСТКА ИСТОРИИ ===
+        if user_id in user_conversation_history:
+            del user_conversation_history[user_id]
         await query.edit_message_text("❌ Сессия SKILLTRAINER отменена.")
         from .calculator import show_business_menu_from_callback
         await show_business_menu_from_callback(update, context)
@@ -270,7 +281,7 @@ async def handle_training_start(update: Update, context: ContextTypes.DEFAULT_TY
             session.data = {'training_task': training_task}
             session.training_complete = True
             check_gate(session, "training_complete")
-
+            
             keyboard = [
                 [InlineKeyboardButton("✅ Задание выполнено", callback_data="st_task_done")],
                 [InlineKeyboardButton("💡 Нужна подсказка", callback_data="st_need_hint")],
@@ -278,12 +289,10 @@ async def handle_training_start(update: Update, context: ContextTypes.DEFAULT_TY
                 [InlineKeyboardButton("🏁 Завершить сессию", callback_data="st_finish_session")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-
-            # ✅ ИСПРАВЛЕНО: parse_mode=None (без Markdown)
             await query.edit_message_text(
                 f"{generate_hud(session)}\n{training_task}",
                 reply_markup=reply_markup,
-                parse_mode=None  # ← КЛЮЧЕВОЕ ИЗМЕНЕНИЕ
+                parse_mode=ParseMode.MARKDOWN
             )
         except Exception as e:
             logger.error(f"Ошибка генерации задания SKILLTRAINER: {e}")
@@ -338,12 +347,11 @@ async def finish_skilltrainer_session(update: Update, context: ContextTypes.DEFA
                 {"role": "system", "content": SYSTEM_PROMPTS['skilltrainer']},
                 {"role": "user", "content": finish_request}
             ]
-            
             if update.callback_query:
                 await update.callback_query.edit_message_text(f"{generate_hud(session)}\n🎓 Формирую Finish Packet...")
             elif update.message:
                 await update.message.reply_text(f"{generate_hud(session)}\n🎓 Формирую Finish Packet...")
-            
+
             chat_completion = groq_client.chat.completions.create(
                 messages=messages,
                 model="llama-3.1-8b-instant",
@@ -353,8 +361,11 @@ async def finish_skilltrainer_session(update: Update, context: ContextTypes.DEFA
             session.finish_packet = format_finish_packet(session, ai_response)
             await update_usage_stats(session.user_id, 'skilltrainer')
 
+            # === ОЧИСТКА ИСТОРИИ ПРИ ЗАВЕРШЕНИИ ===
             if session.user_id in active_skill_sessions:
                 del active_skill_sessions[session.user_id]
+            if session.user_id in user_conversation_history:
+                del user_conversation_history[session.user_id]
 
             # Финальное меню
             keyboard = [
@@ -363,14 +374,13 @@ async def finish_skilltrainer_session(update: Update, context: ContextTypes.DEFA
                 [InlineKeyboardButton("🔙 В меню", callback_data="main_menu")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-
-            # ✅ ИСПРАВЛЕНО: отправка Finish Packet без Markdown
+            
             parts = split_message_efficiently(session.finish_packet)
             for part in parts:
                 if update.callback_query:
-                    await update.callback_query.message.reply_text(part, parse_mode=None)
+                    await update.callback_query.message.reply_text(part)
                 elif update.message:
-                    await update.message.reply_text(part, parse_mode=None)
+                    await update.message.reply_text(part)
 
             if update.callback_query:
                 await update.callback_query.message.reply_text(
