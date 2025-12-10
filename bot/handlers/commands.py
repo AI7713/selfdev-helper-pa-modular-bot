@@ -1,5 +1,5 @@
 """
-Обработчики команд бота (/start, /menu, /progress, /version, /referral)
+Обработчики команд бота (/start, /menu, /progress, /version, /referral, /clear_history)
 """
 import os
 from typing import Dict, Any
@@ -11,7 +11,7 @@ from ..config import (
     logger, BOT_VERSION, CONFIG_VERSION, SKILLTRAINER_VERSION,
     DEMO_SCENARIOS, SYSTEM_PROMPTS, REPLY_KEYBOARD_MARKUP
 )
-from ..models import user_stats_cache, active_skill_sessions, BotState
+from ..models import user_stats_cache, active_skill_sessions, BotState, user_conversation_history
 from ..utils import split_message_efficiently
 
 
@@ -151,7 +151,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
         return BotState.MAIN_MENU
     
     user_id = update.message.from_user.id
-    
+
+    # === ОЧИСТКА ИСТОРИИ ПРИ /START ===
+    if user_id in user_conversation_history:
+        del user_conversation_history[user_id]
+
     if user_id in active_skill_sessions:
         del active_skill_sessions[user_id]
     
@@ -249,6 +253,20 @@ async def referral_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================================================================
+# КОМАНДА /clear_history
+# ==============================================================================
+
+async def clear_history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Очистить историю разговора"""
+    user_id = update.message.from_user.id
+    if user_id in user_conversation_history:
+        del user_conversation_history[user_id]
+        await update.message.reply_text("✅ История разговора очищена.")
+    else:
+        await update.message.reply_text("ℹ️ История разговора пуста.")
+
+
+# ==============================================================================
 # ГЛАВНОЕ МЕНЮ ЧЕРЕЗ CALLBACK
 # ==============================================================================
 
@@ -260,6 +278,9 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if query:
         await query.answer()
         user_id = query.from_user.id
+
+        # === ОЧИСТКА ИСТОРИИ НЕ НУЖНА — ПОТОМУ ЧТО /START УЖЕ ОЧИЩАЕТ ===
+
         stats = await get_usage_stats(user_id)
         
         keyboard = [
@@ -359,7 +380,10 @@ def setup_commands(application: Application):
     application.add_handler(CommandHandler("version", version_command))
     application.add_handler(CommandHandler("progress", progress_command))
     application.add_handler(CommandHandler("referral", referral_command))
+    application.add_handler(CommandHandler("clear_history", clear_history_command))  # ← новая команда
+    
     # Новые обработчики для разделов
     application.add_handler(CallbackQueryHandler(profi_section_handler, pattern='^profi_section$'))
     application.add_handler(CallbackQueryHandler(programs_section_handler, pattern='^programs_section$'))
+    
     logger.info("Командные обработчики настроены")
