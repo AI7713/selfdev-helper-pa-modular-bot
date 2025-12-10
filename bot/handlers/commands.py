@@ -1,17 +1,22 @@
 """
-Обработчики команд бота (/start, /menu, /progress, /version, /referral)
+Обработчики команд бота (/start, /menu, /progress, /version, /referral, /clear_history)
 """
 import os
 from typing import Dict, Any
 from datetime import datetime
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes, Application, CommandHandler, CallbackQueryHandler
 from telegram.constants import ParseMode
+
 from ..config import (
     logger, BOT_VERSION, CONFIG_VERSION, SKILLTRAINER_VERSION,
-    DEMO_SCENARIOS, SYSTEM_PROMPTS, REPLY_KEYBOARD_MARKUP
+    REPLY_KEYBOARD_MARKUP, DEMO_SCENARIOS, SYSTEM_PROMPTS
 )
-from ..models import user_stats_cache, active_skill_sessions, BotState
+from ..models import (
+    user_stats_cache, active_skill_sessions, BotState,
+    user_conversation_history  # ← НОВОЕ: кэш истории
+)
 from ..utils import split_message_efficiently
 
 
@@ -29,13 +34,12 @@ async def get_usage_stats(user_id: int) -> Dict[str, Any]:
             'ai_requests': 0,
             'calculator_uses': 0,
             'skilltrainer_sessions': 0,
-            'first_seen': datetime.now().strftime('%Y-%m-%d'),
-            'last_active': datetime.now().strftime('%Y-%m-%d'),
+            'first_seen': '2024-01-01',
+            'last_active': '2024-01-01',
             'ab_test_group': 'A' if user_id % 2 == 0 else 'B'
         })
+
     stats = user_stats_cache.get(user_id)
-    stats['last_active'] = datetime.now().strftime('%Y-%m-%d')
-    user_stats_cache.set(user_id, stats)
     return stats
 
 
@@ -44,12 +48,15 @@ async def update_usage_stats(user_id: int, tool_type: str):
     Обновление статистики использования
     """
     stats = await get_usage_stats(user_id)
+
     if tool_type == 'ai':
         stats['ai_requests'] += 1
     elif tool_type == 'calculator':
         stats['calculator_uses'] += 1
     elif tool_type == 'skilltrainer':
         stats['skilltrainer_sessions'] = stats.get('skilltrainer_sessions', 0) + 1
+
+    # Обновляем количество использованных инструментов
     tools_used = set()
     if stats['ai_requests'] > 0:
         tools_used.add('ai')
@@ -57,6 +64,7 @@ async def update_usage_stats(user_id: int, tool_type: str):
         tools_used.add('calculator')
     if stats.get('skilltrainer_sessions', 0) > 0:
         tools_used.add('skilltrainer')
+
     stats['tools_used'] = len(tools_used)
     stats['last_tool'] = tool_type
     user_stats_cache.set(user_id, stats)
@@ -64,20 +72,15 @@ async def update_usage_stats(user_id: int, tool_type: str):
 
 async def show_usage_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Показать прогресс использования бота (работает и с callback, и с message)
+    Показать прогресс использования бота
     """
-    if update.callback_query:
-        user_id = update.callback_query.from_user.id
-    elif update.message:
-        user_id = update.message.from_user.id
-    else:
-        logger.warning("show_usage_progress: невозможно определить пользователя")
-        return
-
+    user_id = update.message.from_user.id if update.message else update.callback_query.from_user.id
     stats = await get_usage_stats(user_id)
+
+    # Создаем прогресс-бары
     tools_progress = "▰" * min(stats['tools_used'], 5) + "▱" * (5 - min(stats['tools_used'], 5))
     ai_progress = "▰" * min(stats['ai_requests'] // 3, 5) + "▱" * (5 - min(stats['ai_requests'] // 3, 5))
-    
+
     progress_text = f"""
 📊 **ВАШ ПРОГРЕСС:**
 🛠️ Инструменты: {tools_progress} {stats['tools_used']}/5
@@ -87,11 +90,11 @@ async def show_usage_progress(update: Update, context: ContextTypes.DEFAULT_TYPE
 🎯 Группа теста: {stats['ab_test_group']}
 💡 Исследуйте больше инструментов для увеличения прогресса!
     """
-    
-    if update.callback_query:
-        await update.callback_query.message.reply_text(progress_text, parse_mode=ParseMode.MARKDOWN)
-    elif update.message:
+
+    if update.message:
         await update.message.reply_text(progress_text, parse_mode=ParseMode.MARKDOWN)
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(progress_text, parse_mode=ParseMode.MARKDOWN)
 
 
 async def get_personal_recommendation(user_id: int) -> str:
@@ -99,6 +102,7 @@ async def get_personal_recommendation(user_id: int) -> str:
     Получить персональную рекомендацию для пользователя
     """
     stats = await get_usage_stats(user_id)
+
     if stats['calculator_uses'] > stats['ai_requests']:
         return "🎯 **Вам подойдет:** Аналитик + Маркетолог (для углубления анализа)"
     elif stats['ai_requests'] > 5:
@@ -113,15 +117,10 @@ async def show_referral_program(update: Update, context: ContextTypes.DEFAULT_TY
     """
     Показать реферальную программу
     """
-    if update.callback_query:
-        user_id = update.callback_query.from_user.id
-    elif update.message:
-        user_id = update.message.from_user.id
-    else:
-        return
-
+    user_id = update.message.from_user.id if update.message else update.callback_query.from_user.id
     bot_username = (await context.bot.get_me()).username
     ref_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+
     referral_text = f"""
 🎁 **ПРИГЛАСИ ДРУЗЕЙ - ПОЛУЧИ БОНУСЫ!**
 Пригласи друга по ссылке:
@@ -132,11 +131,11 @@ async def show_referral_program(update: Update, context: ContextTypes.DEFAULT_TY
 ✅ Специальные возможности
 💬 Просто отправь другу эту ссылку!
     """
-    
-    if update.callback_query:
-        await update.callback_query.message.reply_text(referral_text, parse_mode=ParseMode.MARKDOWN)
-    elif update.message:
+
+    if update.message:
         await update.message.reply_text(referral_text, parse_mode=ParseMode.MARKDOWN)
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(referral_text, parse_mode=ParseMode.MARKDOWN)
 
 
 # ==============================================================================
@@ -145,75 +144,69 @@ async def show_referral_program(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     """
-    Обработчик команды /start — главное меню (Вариант 1: Три колонны)
+    Обработчик команды /start
     """
     if not update.message:
         return BotState.MAIN_MENU
-    
+
     user_id = update.message.from_user.id
-    
+
+    # Очищаем активные сессии если есть
     if user_id in active_skill_sessions:
         del active_skill_sessions[user_id]
-    
+
+    # Удаляем историю разговора при старте новой сессии
+    user_conversation_history.clear_history(user_id)
+
+    # Получаем статистику
     stats = await get_usage_stats(user_id)
-    
-    # Отправляем нижнюю клавиатуру
+
+    # Создаем клавиатуру в зависимости от группы A/B теста
+    if stats['ab_test_group'] == 'A':
+        inline_keyboard = [
+            [InlineKeyboardButton("Для себя (ИИ-инструменты)", callback_data='menu_self')],
+            [InlineKeyboardButton("Для дела (Калькуляторы и ИИ-инструменты)", callback_data='menu_business')]
+        ]
+        welcome_text = "👋 Привет! Выберите инструмент:"
+    else:
+        inline_keyboard = [
+            [InlineKeyboardButton("🧠 Личный рост", callback_data='menu_self')],
+            [InlineKeyboardButton("🚀 Бизнес и карьера", callback_data='menu_business')],
+            [InlineKeyboardButton("📊 Мой прогресс", callback_data='show_progress')]
+        ]
+        welcome_text = f"🎯 Добро пожаловать! Ваша группа: {stats['ab_test_group']}\nВыберите направление:"
+
+    inline_markup = InlineKeyboardMarkup(inline_keyboard)
+
+    # Отправляем reply-клавиатуру
     await update.message.reply_text("👋 Привет! Используйте нижнюю панель для навигации.", reply_markup=REPLY_KEYBOARD_MARKUP)
-    
-    # Показываем прогресс, если есть
+
+    # Показываем прогресс если пользователь уже использовал инструменты
     if stats['tools_used'] > 0:
         await show_usage_progress(update, context)
-    
-    # Главное меню: Три колонны
-    keyboard = [
-        [
-            InlineKeyboardButton("🧠 Мудрец", callback_data='ai_sage_self'),
-            InlineKeyboardButton("📈 Стратег", callback_data='ai_strategist_self'),
-            InlineKeyboardButton("🧭 Наставник", callback_data='ai_mentor_self')
-        ],
-        [
-            InlineKeyboardButton("💡 Идеатор", callback_data='ai_ideator_self'),
-            InlineKeyboardButton("✨ Редактор", callback_data='ai_editor_self'),
-            InlineKeyboardButton("📈 Рост-эксперт", callback_data='ai_growth_expert_self')
-        ],
-        [
-            InlineKeyboardButton("💼 HR-советник", callback_data='ai_hr_advisor_self'),
-            InlineKeyboardButton("🤝 Посредник", callback_data='ai_mediator_self'),
-            InlineKeyboardButton("🌟 Фраза дня", callback_data='ai_daily_phrase_self')
-        ],
-        [
-            InlineKeyboardButton("🔮 Гороскоп разума", callback_data='ai_mind_horoscope_self'),
-            InlineKeyboardButton("🌙 Рефлексия дня", callback_data='ai_daily_reflection_self')
-        ],
-        [
-            InlineKeyboardButton("💡 ПРОФИ", callback_data='profi_section'),
-            InlineKeyboardButton("🎓 ПРОГРАММЫ", callback_data='programs_section')
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    welcome_text = (
-        "👋 Это ваш личный AI-тренер и стратег.\n"
-        "Выберите формат:\n"
-        "• Бесплатные инструменты — для старта,\n"
-        "• Платные промты — для глубокого анализа,\n"
-        "• Программы — для реальных результатов."
-    )
-    
-    await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
-    
+
+    # Отправляем основное меню
+    await update.message.reply_text(welcome_text, reply_markup=inline_markup)
+
+    # Устанавливаем состояние
     context.user_data['state'] = BotState.MAIN_MENU
     context.user_data['active_groq_mode'] = None
-    
+
     logger.info(f"{BOT_VERSION} - User {user_id} started bot (Group: {stats['ab_test_group']})")
     return BotState.MAIN_MENU
 
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
+    """
+    Обработчик команды /menu
+    """
     return await start(update, context)
 
 
 async def version_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Обработчик команды /version
+    """
     version_info = f"""
 🤖 **Personal Growth AI** {BOT_VERSION}
 📊 **КОМПОНЕНТЫ:**
@@ -234,119 +227,75 @@ async def version_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ✅ Защита от инъекций
 💡 Используйте /progress для вашей статистики
 """
+
     await update.message.reply_text(version_info, parse_mode=ParseMode.MARKDOWN)
 
 
 async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Обработчик команды /progress
+    """
     await show_usage_progress(update, context)
+
     user_id = update.message.from_user.id
     recommendation = await get_personal_recommendation(user_id)
     await update.message.reply_text(recommendation, parse_mode=ParseMode.MARKDOWN)
 
 
 async def referral_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Обработчик команды /referral
+    """
     await show_referral_program(update, context)
 
 
 # ==============================================================================
-# ГЛАВНОЕ МЕНЮ ЧЕРЕЗ CALLBACK
+# НОВАЯ КОМАНДА: /clear_history
+# ==============================================================================
+
+async def clear_history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Команда для очистки истории разговора
+    """
+    user_id = update.message.from_user.id
+
+    # Удаляем историю
+    user_conversation_history.clear_history(user_id)
+
+    await update.message.reply_text("✅ История разговора очищена.")
+
+
+# ==============================================================================
+# КОМАНДА: /help
+# ==============================================================================
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Команда /help — показывает список команд
+    """
+    help_text = """
+🤖 **Доступные команды:**
+/start — Главное меню
+/progress — Ваш прогресс и статистика
+/version — Информация о боте
+/referral — Пригласить друга
+/clear_history — Очистить историю разговора (если включена)
+/help — Показать это сообщение
+
+💡 Также используйте кнопки в меню ниже.
+    """
+    await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+
+
+# ==============================================================================
+# ФУНКЦИЯ ДЛЯ МЕНЮ
 # ==============================================================================
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     """
-    Обработчик кнопки «В главное меню» (работает из callback)
+    Показать главное меню (используется из ai_handlers)
     """
-    query = update.callback_query
-    if query:
-        await query.answer()
-        user_id = query.from_user.id
-        stats = await get_usage_stats(user_id)
-        
-        keyboard = [
-            [
-                InlineKeyboardButton("🧠 Мудрец", callback_data='ai_sage_self'),
-                InlineKeyboardButton("📈 Стратег", callback_data='ai_strategist_self'),
-                InlineKeyboardButton("🧭 Наставник", callback_data='ai_mentor_self')
-            ],
-            [
-                InlineKeyboardButton("💡 Идеатор", callback_data='ai_ideator_self'),
-                InlineKeyboardButton("✨ Редактор", callback_data='ai_editor_self'),
-                InlineKeyboardButton("📈 Рост-эксперт", callback_data='ai_growth_expert_self')
-            ],
-            [
-                InlineKeyboardButton("💼 HR-советник", callback_data='ai_hr_advisor_self'),
-                InlineKeyboardButton("🤝 Посредник", callback_data='ai_mediator_self'),
-                InlineKeyboardButton("🌟 Фраза дня", callback_data='ai_daily_phrase_self')
-            ],
-            [
-                InlineKeyboardButton("🔮 Гороскоп разума", callback_data='ai_mind_horoscope_self'),
-                InlineKeyboardButton("🌙 Рефлексия дня", callback_data='ai_daily_reflection_self')
-            ],
-            [
-                InlineKeyboardButton("💡 ПРОФИ", callback_data='profi_section'),
-                InlineKeyboardButton("🎓 ПРОГРАММЫ", callback_data='programs_section')
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        welcome_text = (
-            "👋 Это ваш личный AI-тренер и стратег.\n"
-            "Выберите формат:\n"
-            "• Бесплатные инструменты — для старта,\n"
-            "• Платные промты — для глубокого анализа,\n"
-            "• Программы — для реальных результатов."
-        )
-        
-        await query.edit_message_text(welcome_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
-        context.user_data['state'] = BotState.MAIN_MENU
-        context.user_data['active_groq_mode'] = None
-        return BotState.MAIN_MENU
-    else:
-        return await start(update, context)
-
-
-# ==============================================================================
-# ОБРАБОТЧИКИ ДЛЯ ПРОФИ И ПРОГРАММ (заглушки)
-# ==============================================================================
-
-async def profi_section_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    query = update.callback_query
-    await query.answer()
-    keyboard = [
-        [InlineKeyboardButton("🎓 SKILLTRAINER", callback_data='ai_skilltrainer_business')],
-        [InlineKeyboardButton("📊 Калькулятор маркетплейсов", callback_data='menu_calculator')],
-        [InlineKeyboardButton("🔙 В главное меню", callback_data='main_menu')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(
-        "💡 **ПРОФИ** (ограничено)\n"
-        "• SKILLTRAINER — многошаговая тренировка навыков\n"
-        "• Калькулятор маркетплейсов — финансовый анализ\n"
-        "Лимит: 3 запроса в день.",
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN
-    )
-    return BotState.MAIN_MENU
-
-
-async def programs_section_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    query = update.callback_query
-    await query.answer()
-    keyboard = [
-        [InlineKeyboardButton("🔙 В главное меню", callback_data='main_menu')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(
-        "🎓 **ПРОГРАММЫ** (скоро)\n"
-        "Готовые маршруты к результату:\n"
-        "• Мастер переговоров\n"
-        "• Бизнес-инженер\n"
-        "• Лидер будущего\n\n"
-        "Следите за обновлениями!",
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN
-    )
-    return BotState.MAIN_MENU
+    return await start(update, context)
 
 
 # ==============================================================================
@@ -354,12 +303,15 @@ async def programs_section_handler(update: Update, context: ContextTypes.DEFAULT
 # ==============================================================================
 
 def setup_commands(application: Application):
+    """
+    Настройка обработчиков команд для приложения
+    """
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("version", version_command))
     application.add_handler(CommandHandler("progress", progress_command))
     application.add_handler(CommandHandler("referral", referral_command))
-    # Новые обработчики для разделов
-    application.add_handler(CallbackQueryHandler(profi_section_handler, pattern='^profi_section$'))
-    application.add_handler(CallbackQueryHandler(programs_section_handler, pattern='^programs_section$'))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("clear_history", clear_history_command))  # ← НОВОЕ
+
     logger.info("Командные обработчики настроены")
