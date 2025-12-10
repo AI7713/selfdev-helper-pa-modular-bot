@@ -1,10 +1,11 @@
+
 """
 Модели данных бота
 """
 import time
 import hashlib
 from typing import Dict, Any, List, Optional, Set
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import OrderedDict
 from enum import Enum
 
@@ -81,49 +82,6 @@ class AIResponseCache:
         self.cache.set(key, response)
 
 
-class ConversationHistoryCache:
-    """Кэш истории разговора с TTL = 1 час"""
-    def __init__(self, max_messages: int = 15, ttl_hours: int = 1):
-        # {user_id: {"history": [...], "last_activity": datetime}}
-        self.history: Dict[int, Dict[str, Any]] = {}
-        self.max_messages = max_messages
-        self.ttl = timedelta(hours=ttl_hours)
-
-    def get_history(self, user_id: int) -> List[Dict[str, str]]:
-        """Получить историю для пользователя (если не просрочена)"""
-        if user_id not in self.history:
-            return []
-        record = self.history[user_id]
-        if datetime.now() - record["last_activity"] > self.ttl:
-            del self.history[user_id]
-            return []
-        return record["history"]
-
-    def add_message(self, user_id: int, role: str, content: str):
-        """Добавить сообщение в историю"""
-        if user_id not in self.history:
-            self.history[user_id] = {"history": [], "last_activity": datetime.now()}
-        else:
-            self.history[user_id]["last_activity"] = datetime.now()
-        
-        self.history[user_id]["history"].append({"role": role, "content": content})
-        # Ограничиваем количество сообщений
-        self.history[user_id]["history"] = self.history[user_id]["history"][-self.max_messages:]
-
-    def clear_history(self, user_id: int):
-        """Очистить историю для пользователя"""
-        if user_id in self.history:
-            del self.history[user_id]
-
-    def cleanup_expired(self):
-        """Очистить все просроченные записи (опционально, можно вызывать по расписанию)"""
-        now = datetime.now()
-        expired = [uid for uid, record in self.history.items() 
-                   if now - record["last_activity"] > self.ttl]
-        for uid in expired:
-            del self.history[uid]
-
-
 class BotState(Enum):
     """Состояния бота"""
     MAIN_MENU = "main_menu"
@@ -165,7 +123,6 @@ class SkillSession:
         self.progress: float = 0.0
         self.finish_packet: Optional[str] = None
         self.training_complete: bool = False
-        self.data: Dict[str, Any] = {}  # Для хранения промежуточных данных
     
     def update_progress(self):
         """Обновить прогресс сессии"""
@@ -189,8 +146,6 @@ class SkillSession:
     def is_gate_passed(self, gate_id: str) -> bool:
         """Проверить пройден ли гейт"""
         return gate_id in self.gates_passed
-
-
 # ==============================================================================
 # ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
 # ==============================================================================
@@ -200,6 +155,3 @@ user_stats_cache = LRUCache(max_size=500)
 rate_limiter = RateLimiter(max_requests=15, window_seconds=60)
 ai_cache = AIResponseCache(max_size=100)
 active_skill_sessions: Dict[int, SkillSession] = {}
-
-# НОВОЕ: кэш истории разговора
-user_conversation_history = ConversationHistoryCache(max_messages=15, ttl_hours=1)
