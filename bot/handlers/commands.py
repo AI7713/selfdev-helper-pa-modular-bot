@@ -69,7 +69,7 @@ async def show_usage_progress(update: Update, context: ContextTypes.DEFAULT_TYPE
     stats = await get_usage_stats(user_id)
     tools_progress = "▰" * min(stats['tools_used'], 5) + "▱" * (5 - min(stats['tools_used'], 5))
     ai_progress = "▰" * min(stats['ai_requests'] // 3, 5) + "▱" * (5 - min(stats['ai_requests'] // 3, 5))
-    progress_text = f"""📊 **ВАШ ПРОГРЕСС:**
+    progress_text = f"""📊 ВАШ ПРОГРЕСС:
 🛠️ Инструменты: {tools_progress} {stats['tools_used']}/5
 🤖 AI запросы: {ai_progress} {stats['ai_requests']}+
 📈 Калькулятор: {stats['calculator_uses']} использований
@@ -87,13 +87,13 @@ async def get_personal_recommendation(user_id: int) -> str:
     """Получить персональную рекомендацию для пользователя"""
     stats = await get_usage_stats(user_id)
     if stats['calculator_uses'] > stats['ai_requests']:
-        return "🎯 **Вам подойдет:** Аналитик + Маркетолог (для углубления анализа)"
+        return "🎯 Вам подойдет: Аналитик + Маркетолог (для углубления анализа)"
     elif stats['ai_requests'] > 5:
-        return "🎯 **Попробуйте:** Калькулятор для точных финансовых расчетов"
+        return "🎯 Попробуйте: Калькулятор для точных финансовых расчетов"
     elif stats.get('skilltrainer_sessions', 0) == 0:
-        return "🎯 **Попробуйте:** SKILLTRAINER для структурированного развития навыков"
+        return "🎯 Попробуйте: SKILLTRAINER для структурированного развития навыков"
     else:
-        return "🎯 **Начните с:** Быстрый старт в меню 'Для себя'"
+        return "🎯 Начните с: Быстрый старт в меню 'Для себя'"
 
 
 async def show_referral_program(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -107,9 +107,9 @@ async def show_referral_program(update: Update, context: ContextTypes.DEFAULT_TY
 
     bot_username = (await context.bot.get_me()).username
     ref_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
-    referral_text = f"""🎁 **ПРИГЛАСИ ДРУЗЕЙ - ПОЛУЧИ БОНУСЫ!**
+    referral_text = f"""🎁 ПРИГЛАСИ ДРУЗЕЙ - ПОЛУЧИ БОНУСЫ!
 Пригласи друга по ссылке:
-`{ref_link}`
+{ref_link}
 
 За каждого друга:
 ✅ +5 дополнительных AI запросов
@@ -157,10 +157,10 @@ async def basics_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        "🆓 **БАЗОВЫЕ ИНСТРУМЕНТЫ** (ежедневные)\n"
+        "🆓 БАЗОВЫЕ ИНСТРУМЕНТЫ (ежедневные)\n"
         "До 5 запросов в день на каждый. Выберите:",
         reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=None
     )
     return BotState.MAIN_MENU
 
@@ -176,10 +176,10 @@ async def profi_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        "💡 **ПРОФИ** (платные)\n"
+        "💡 ПРОФИ (платные)\n"
         "До 3 запросов в день. Выберите:",
         reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=None
     )
     return BotState.MAIN_MENU
 
@@ -191,14 +191,14 @@ async def programs_menu_handler(update: Update, context: ContextTypes.DEFAULT_TY
     keyboard = [[InlineKeyboardButton("🔙 Назад в главное меню", callback_data='main_menu')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        "🎓 **ПРОГРАММЫ** (скоро)\n"
+        "🎓 ПРОГРАММЫ (скоро)\n"
         "Готовые маршруты к результату:\n"
         "• Мастер переговоров\n"
         "• Бизнес-инженер\n"
         "• Лидер будущего\n\n"
         "Следите за обновлениями!",
         reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=None
     )
     return BotState.MAIN_MENU
 
@@ -209,13 +209,12 @@ async def individual_menu_handler(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
     keyboard = [[InlineKeyboardButton("🔙 Назад в главное меню", callback_data='main_menu')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    # Используем plain text, чтобы избежать ошибок с Markdown
     await query.edit_message_text(
         "👤 ИНДИВИДУАЛЬНЫЙ ПРОМТ ПОД КЛЮЧ\n"
         "Напишите мне: https://t.me/Pro_reality_i\n\n"
         "Создам персональный промт под вашу задачу.",
         reply_markup=reply_markup,
-        parse_mode=None  # ← plain text
+        parse_mode=None
     )
     return BotState.MAIN_MENU
 
@@ -226,7 +225,6 @@ async def commands_menu_handler(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     keyboard = [[InlineKeyboardButton("🔙 Назад в главное меню", callback_data='main_menu')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    # Используем plain text — безопасно и надёжно
     help_text = (
         "❓ ДОСТУПНЫЕ КОМАНДЫ:\n"
         "/start — Главное меню\n"
@@ -239,7 +237,7 @@ async def commands_menu_handler(update: Update, context: ContextTypes.DEFAULT_TY
     await query.edit_message_text(
         help_text,
         reply_markup=reply_markup,
-        parse_mode=None  # ← plain text
+        parse_mode=None
     )
     return BotState.MAIN_MENU
 
@@ -254,10 +252,8 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer()
         user_id = query.from_user.id
     else:
-        # Вызывается из /start или reply-кнопки
         user_id = update.message.from_user.id
 
-    # Обновляем статистику (активность)
     await get_usage_stats(user_id)
 
     keyboard = [
@@ -268,26 +264,28 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         [InlineKeyboardButton("❓ КОМАНДЫ", callback_data='commands_menu')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
+    
     welcome_text = (
-         "👋 Привет! Это ваш персональный AI-тренер и стратег для роста в жизни и бизнесе.\n\n"
+        "👋 Привет! Это ваш персональный AI-тренер и стратег для роста в жизни и бизнесе.\n\n"
         "Выберите формат работы:\n\n"
-        "🆓 **БАЗОВЫЕ (ежедневные)** — 11 бесплатных инструментов для саморазвития, анализа и вдохновения.\n"
+        "🆓 БАЗОВЫЕ (ежедневные) — 11 бесплатных инструментов для саморазвития, анализа и вдохновения.\n"
         "До 5 запросов в день. Идеально для старта.\n\n"
-        "💡 **ПРОФИ (платные)** — продвинутые инструменты с глубокой проработкой:\n"
+        "💡 ПРОФИ (платные) — продвинутые инструменты с глубокой проработкой:\n"
         "• 🎓 SKILLTRAINER — тренер навыков (переговоры, уверенность, лидерство)\n"
         "• 📊 Калькулятор маркетплейсов — точный бизнес-расчёт (налоги, логистика, комиссия)\n"
         "До 3 запросов в день.\n\n"
-        "🎓 **ПРОГРАММЫ (скоро)** — готовые маршруты к результату:\n"
+        "🎓 ПРОГРАММЫ (скоро) — готовые маршруты к результату:\n"
         "«Мастер переговоров», «Бизнес-инженер», «Лидер будущего» и др.\n"
         "Следите за обновлениями!\n\n"
-        "👤 **ИНДИВИДУАЛЬНЫЙ (под ключ)** — создам персональный промт под вашу задачу.\n"
+        "👤 ИНДИВИДУАЛЬНЫЙ (под ключ) — создам персональный промт под вашу задачу.\n"
         "Напишите мне: https://t.me/Pro_reality_i\n\n"
-        "❓ **КОМАНДЫ** — список всех команд бота: /start, /progress, /clear_history и др."
-      )
+        "❓ КОМАНДЫ — список всех команд бота: /start, /progress, /clear_history и др."
+    )
+    
     if query:
-        await query.edit_message_text(welcome_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+        await query.edit_message_text(welcome_text, reply_markup=reply_markup, parse_mode=None)
     else:
-        await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode=None)
     return BotState.MAIN_MENU
 
 
@@ -301,24 +299,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
 
     user_id = update.message.from_user.id
 
-    # Очистка истории и сессий
     if user_id in user_conversation_history:
         del user_conversation_history[user_id]
     if user_id in active_skill_sessions:
         del active_skill_sessions[user_id]
 
-    # Показываем нижнюю клавиатуру
     await update.message.reply_text(
         "👋 Привет! Используйте нижнюю панель для навигации.",
         reply_markup=REPLY_KEYBOARD_MARKUP
     )
 
-    # Показываем прогресс, если уже использовали
     stats = await get_usage_stats(user_id)
     if stats['tools_used'] > 0:
         await show_usage_progress(update, context)
 
-    # Показываем главное меню
     await show_main_menu(update, context)
 
     logger.info(f"{BOT_VERSION} - User {user_id} started bot (Group: {stats['ab_test_group']})")
@@ -333,28 +327,22 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Bo
 
 
 async def version_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    version_info = f"""🤖 **Personal Growth AI** {BOT_VERSION}
-📊 **КОМПОНЕНТЫ:**
-• Архитектура: {BOT_VERSION} (Гибридный бот + Growth + SKILLTRAINER)
-• Конфигурация: {CONFIG_VERSION}
-• Калькулятор: v1.0 (полный из первого бота)
-• AI движок: v2.0 (Groq + 11 инструментов + кэширование)
-• SKILLTRAINER: {SKILLTRAINER_VERSION} (полная реализация)
-
-🔄 **ЧТО ВКЛЮЧЕНО:**
-✅ Детальный калькулятор маркетплейса (6 шагов)
-✅ 11 AI-инструментов с системными промтами
-✅ SKILLTRAINER: 7 шагов диагностики + 5 режимов + гейты + HUD
-✅ Разбивка длинных ответов (>4096 символов)
-✅ Growth фичи (A/B тесты, прогресс-бар, виральность)
-✅ Inline + Reply навигация
-✅ Webhook для Render
-✅ Rate limiting и кэширование
-✅ Защита от инъекций
-✅ История диалога (15 шагов, TTL=1 час)
-✅ Команда /clear_history
-
-💡 Используйте /progress для вашей статистики"""
+    version_info = (
+        f"🤖 Personal Growth AI {BOT_VERSION}\n"
+        f"📊 КОМПОНЕНТЫ:\n"
+        f"• Архитектура: {BOT_VERSION} (Гибридный бот + Growth + SKILLTRAINER)\n"
+        f"• Конфигурация: {CONFIG_VERSION}\n"
+        f"• Калькулятор: v1.0\n"
+        f"• AI движок: v2.0 (11 инструментов + кэширование)\n"
+        f"• SKILLTRAINER: {SKILLTRAINER_VERSION}\n\n"
+        "🔄 ЧТО ВКЛЮЧЕНО:\n"
+        "✅ 11 AI-инструментов\n"
+        "✅ SKILLTRAINER: 7 шагов + 5 режимов\n"
+        "✅ Калькулятор маркетплейса\n"
+        "✅ История диалога (15 шагов, TTL=1 час)\n"
+        "✅ Команда /clear_history\n\n"
+        "💡 Используйте /progress для вашей статистики"
+    )
     await update.message.reply_text(version_info, parse_mode=None)
 
 
@@ -373,7 +361,6 @@ async def referral_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # НАСТРОЙКА ОБРАБОТЧИКОВ
 # ==============================================================================
 def setup_commands(application: Application):
-    # Основные команды
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("version", version_command))
@@ -381,7 +368,6 @@ def setup_commands(application: Application):
     application.add_handler(CommandHandler("referral", referral_command))
     application.add_handler(CommandHandler("clear_history", clear_history_command))
 
-    # Callback-меню
     application.add_handler(CallbackQueryHandler(show_main_menu, pattern='^main_menu$'))
     application.add_handler(CallbackQueryHandler(basics_menu_handler, pattern='^basics_menu$'))
     application.add_handler(CallbackQueryHandler(profi_menu_handler, pattern='^profi_menu$'))
