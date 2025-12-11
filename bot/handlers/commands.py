@@ -204,35 +204,43 @@ async def programs_menu_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def individual_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    """Меню ИНДИВИДУАЛЬНОГО промта (заглушка с контактами)"""
+    """Меню ИНДИВИДУАЛЬНОГО промта (заглушка с ссылкой)"""
     query = update.callback_query
     await query.answer()
     keyboard = [[InlineKeyboardButton("🔙 Назад в главное меню", callback_data='main_menu')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
+    # Используем plain text, чтобы избежать ошибок с Markdown
     await query.edit_message_text(
-        "👤 **ИНДИВИДУАЛЬНЫЙ ПРОМТ ПОД КЛЮЧ**\n"
-        "Напишите мне: @ваш_ник\n\n"
+        "👤 ИНДИВИДУАЛЬНЫЙ ПРОМТ ПОД КЛЮЧ\n"
+        "Напишите мне: https://t.me/Pro_reality_i\n\n"
         "Создам персональный промт под вашу задачу.",
         reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=None  # ← plain text
     )
     return BotState.MAIN_MENU
 
 
 async def commands_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    """Меню КОМАНД"""
+    """Меню КОМАНД (plain text)"""
     query = update.callback_query
     await query.answer()
     keyboard = [[InlineKeyboardButton("🔙 Назад в главное меню", callback_data='main_menu')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    help_text = """❓ **ДОСТУПНЫЕ КОМАНДЫ:**
-/start — Главное меню  
-/menu — Повторить главное меню  
-/progress — Ваш прогресс  
-/version — О боте  
-/referral — Пригласить друга  
-/clear_history — Очистить историю диалога"""
-    await query.edit_message_text(help_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+    # Используем plain text — безопасно и надёжно
+    help_text = (
+        "❓ ДОСТУПНЫЕ КОМАНДЫ:\n"
+        "/start — Главное меню\n"
+        "/menu — Повторить главное меню\n"
+        "/progress — Ваш прогресс\n"
+        "/version — О боте\n"
+        "/referral — Пригласить друга\n"
+        "/clear_history — Очистить историю диалога"
+    )
+    await query.edit_message_text(
+        help_text,
+        reply_markup=reply_markup,
+        parse_mode=None  # ← plain text
+    )
     return BotState.MAIN_MENU
 
 
