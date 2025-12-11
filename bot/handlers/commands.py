@@ -69,18 +69,19 @@ async def show_usage_progress(update: Update, context: ContextTypes.DEFAULT_TYPE
     stats = await get_usage_stats(user_id)
     tools_progress = "▰" * min(stats['tools_used'], 5) + "▱" * (5 - min(stats['tools_used'], 5))
     ai_progress = "▰" * min(stats['ai_requests'] // 3, 5) + "▱" * (5 - min(stats['ai_requests'] // 3, 5))
-    progress_text = f"""📊 ВАШ ПРОГРЕСС:
-🛠️ Инструменты: {tools_progress} {stats['tools_used']}/5
-🤖 AI запросы: {ai_progress} {stats['ai_requests']}+
-📈 Калькулятор: {stats['calculator_uses']} использований
-🎓 SKILLTRAINER: {stats.get('skilltrainer_sessions', 0)} сессий
-🎯 Группа теста: {stats['ab_test_group']}
-
-💡 Исследуйте больше инструментов для увеличения прогресса!"""
+    progress_text = (
+        f"📊 ВАШ ПРОГРЕСС:\n"
+        f"🛠️ Инструменты: {tools_progress} {stats['tools_used']}/5\n"
+        f"🤖 AI запросы: {ai_progress} {stats['ai_requests']}+\n"
+        f"📈 Калькулятор: {stats['calculator_uses']} использований\n"
+        f"🎓 SKILLTRAINER: {stats.get('skilltrainer_sessions', 0)} сессий\n"
+        f"🎯 Группа теста: {stats['ab_test_group']}\n\n"
+        "💡 Исследуйте больше инструментов для увеличения прогресса!"
+    )
     if update.callback_query:
-        await update.callback_query.message.reply_text(progress_text, parse_mode=ParseMode.MARKDOWN)
+        await update.callback_query.message.reply_text(progress_text, parse_mode=None)
     elif update.message:
-        await update.message.reply_text(progress_text, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(progress_text, parse_mode=None)
 
 
 async def get_personal_recommendation(user_id: int) -> str:
@@ -107,20 +108,20 @@ async def show_referral_program(update: Update, context: ContextTypes.DEFAULT_TY
 
     bot_username = (await context.bot.get_me()).username
     ref_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
-    referral_text = f"""🎁 ПРИГЛАСИ ДРУЗЕЙ - ПОЛУЧИ БОНУСЫ!
-Пригласи друга по ссылке:
-{ref_link}
-
-За каждого друга:
-✅ +5 дополнительных AI запросов
-✅ Расширенная статистика
-✅ Специальные возможности
-
-💬 Просто отправь другу эту ссылку!"""
+    referral_text = (
+        "🎁 ПРИГЛАСИ ДРУЗЕЙ - ПОЛУЧИ БОНУСЫ!\n"
+        "Пригласи друга по ссылке:\n"
+        f"{ref_link}\n\n"
+        "За каждого друга:\n"
+        "✅ +5 дополнительных AI запросов\n"
+        "✅ Расширенная статистика\n"
+        "✅ Специальные возможности\n\n"
+        "💬 Просто отправь другу эту ссылку!"
+    )
     if update.callback_query:
-        await update.callback_query.message.reply_text(referral_text, parse_mode=ParseMode.MARKDOWN)
+        await update.callback_query.message.reply_text(referral_text, parse_mode=None)
     elif update.message:
-        await update.message.reply_text(referral_text, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(referral_text, parse_mode=None)
 
 
 # ==============================================================================
@@ -220,7 +221,7 @@ async def individual_menu_handler(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def commands_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    """Меню КОМАНД (plain text)"""
+    """Меню КОМАНД"""
     query = update.callback_query
     await query.answer()
     keyboard = [[InlineKeyboardButton("🔙 Назад в главное меню", callback_data='main_menu')]]
@@ -293,9 +294,9 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 # КОМАНДА /start — ОЧИЩАЕТ ИСТОРИЮ И ПОКАЗЫВАЕТ ГЛАВНОЕ МЕНЮ
 # ==============================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    """Обработчик команды /start — главное меню (новая версия)"""
+    """Обработчик команды /start — главное меню"""
     if not update.message:
-        return BotState.MAIN_MENU
+        return Bot委State.MAIN_MENU
 
     user_id = update.message.from_user.id
 
@@ -350,7 +351,7 @@ async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_usage_progress(update, context)
     user_id = update.message.from_user.id
     recommendation = await get_personal_recommendation(user_id)
-    await update.message.reply_text(recommendation, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(recommendation, parse_mode=None)
 
 
 async def referral_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
