@@ -343,7 +343,7 @@ async def version_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ✅ Команда /clear_history
 
 💡 Используйте /progress для вашей статистики"""
-    await update.message.reply_text(version_info, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(version_info, parse_mode=None)
 
 
 async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
