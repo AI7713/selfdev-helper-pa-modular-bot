@@ -1,17 +1,15 @@
-"""
-Главный обработчик текстовых сообщений и маршрутизация (с TTL = 1 час для кэша истории)
-"""
+"""Главный обработчик текстовых сообщений и маршрутизация (с TTL = 1 час для кэша истории)"""
 from telegram import Update
-from telegram.ext import ContextTypes, Application, MessageHandler, filters
+from telegram.ext import ContextTypes, Application, MessageHandler, filters, CallbackQueryHandler
 from telegram.constants import ParseMode
 from datetime import datetime, timedelta
 from ..config import logger
 from ..models import BotState, active_skill_sessions, user_conversation_history
+from .commands import show_progress_callback_handler  # ← новая строка
+
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    """
-    Главный обработчик текстовых сообщений
-    """
+    """Главный обработчик текстовых сообщений"""
     user_text = update.message.text.strip()
     user_id = update.message.from_user.id
 
@@ -58,13 +56,11 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         from .calculator import handle_economy_calculator
         await handle_economy_calculator(update, context)
         return BotState.CALCULATOR
-
     elif context.user_data.get('active_groq_mode'):
         active_mode = context.user_data['active_groq_mode']
         from .ai_handlers import handle_groq_request
         await handle_groq_request(update, context, active_mode)
         return BotState.AI_SELECTION
-
     elif current_state in (BotState.AI_SELECTION, BotState.BUSINESS_MENU):
         await update.message.reply_text(
             "❓ Вы отправили текст, но не активировали ни один из ИИ-инструментов. "
@@ -72,30 +68,28 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             "или 🏠 Меню для возврата."
         )
         return current_state
-
     else:
         # Помощь по умолчанию
         from ..config import BOT_VERSION
-        help_text = f"""
-🤖 **Personal Growth AI** {BOT_VERSION}
+        help_text = f"""🤖 **Personal Growth AI** {BOT_VERSION}
 💡 **Доступные команды:**
-/start - Главное меню  
+/start - Главное меню
 /progress - Ваш прогресс и статистика
+
 🎯 **Быстрый старт:**
 • Напишите "пригласи друга" для реферальной программы
 • Используйте "мой прогресс" для статистики
 • Выберите инструмент из меню
+
 🚀 **Новый инструмент: SKILLTRAINER**
-Многошаговая сессия развития навыков с гейтами и прогресс-баром!
-"""
+Многошаговая сессия развития навыков с гейтами и прогресс-баром!"""
         await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
         return current_state
 
+
 def setup_main_handler(application: Application):
-    """
-    Настройка главного обработчика текстовых сообщений
-    """
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)
-    )
+    """Настройка главного обработчика текстовых сообщений"""
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+    # Добавляем обработчик для inline-кнопки "Мой прогресс"
+    application.add_handler(CallbackQueryHandler(show_progress_callback_handler, pattern='^show_progress$'))
     logger.info("Главный обработчик сообщений настроен")
