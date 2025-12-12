@@ -1,12 +1,11 @@
-"""
-Модели данных бота
-"""
+"""Модели данных бота"""
 import time
 import hashlib
 from typing import Dict, Any, List, Optional, Set
 from datetime import datetime, timedelta
 from collections import OrderedDict
 from enum import Enum
+
 
 class LRUCache:
     """Кэш с алгоритмом LRU (Least Recently Used)"""
@@ -33,6 +32,7 @@ class LRUCache:
         """Проверка наличия ключа в кэше"""
         return key in self.cache
 
+
 class RateLimiter:
     """Ограничитель запросов по времени"""
     def __init__(self, max_requests: int = 10, window_seconds: int = 60):
@@ -45,14 +45,18 @@ class RateLimiter:
         now = time.time()
         if user_id not in self.requests:
             self.requests[user_id] = []
-        user_requests = [req_time for req_time in self.requests[user_id] 
-                        if now - req_time < self.window]
+
+        user_requests = [
+            req_time for req_time in self.requests[user_id]
+            if now - req_time < self.window
+        ]
         if len(user_requests) < self.max_requests:
             user_requests.append(now)
             self.requests[user_id] = user_requests
             return True
         self.requests[user_id] = user_requests
         return False
+
 
 class AIResponseCache:
     """Кэш для ответов AI"""
@@ -74,12 +78,15 @@ class AIResponseCache:
         key = self.get_cache_key(prompt_key, user_query)
         self.cache.set(key, response)
 
+
 class BotState(Enum):
     """Состояния бота"""
     MAIN_MENU = "main_menu"
     BUSINESS_MENU = "business_menu"
     AI_SELECTION = "ai_selection"
     CALCULATOR = "calculator"
+    SKILLTRAINER = "skilltrainer"
+
 
 class SessionState(Enum):
     """Состояния сессии SKILLTRAINER"""
@@ -89,6 +96,7 @@ class SessionState(Enum):
     GATE_CHECK = "gate_check"
     FINISH = "finish"
 
+
 class TrainingMode(Enum):
     """Режимы тренировки SKILLTRAINER"""
     SIM = "sim"
@@ -96,6 +104,7 @@ class TrainingMode(Enum):
     BUILD = "build"
     CASE = "case"
     QUIZ = "quiz"
+
 
 class SkillSession:
     """Сессия SKILLTRAINER"""
@@ -136,9 +145,11 @@ class SkillSession:
         """Проверить пройден ли гейт"""
         return gate_id in self.gates_passed
 
+
 # ==============================================================================
 # ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
 # ==============================================================================
+
 # Глобальные экземпляры для использования во всём приложении
 user_stats_cache = LRUCache(max_size=500)
 rate_limiter = RateLimiter(max_requests=15, window_seconds=60)
