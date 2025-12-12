@@ -1,33 +1,31 @@
 """Обработчики AI-инструментов (Мудрец, Стратег, SKILLTRAINER и др.)"""
 import re
-import random
 from typing import Optional
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, Application, CallbackQueryHandler, CommandHandler
+from telegram.ext import ContextTypes, Application, CallbackQueryHandler
 from telegram.constants import ParseMode
 from ..config import (
-    logger, SYSTEM_PROMPTS, DEMO_SCENARIOS, REPLY_KEYBOARD_MARKUP,
-    BOT_VERSION, CONFIG_VERSION, SKILLTRAINER_VERSION
+    logger, SYSTEM_PROMPTS, DEMO_SCENARIOS, BOT_VERSION
 )
 from ..models import (
     user_stats_cache, rate_limiter, ai_cache, BotState,
     user_conversation_history
 )
 from ..utils import send_long_message, split_message_efficiently, sanitize_user_input
-from .commands import update_usage_stats, show_main_menu
+from .commands import update_usage_stats
 
 
 # ==============================================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ==============================================================================
-def get_ai_keyboard(prompt_key: str, back_button: str = 'main_menu') -> InlineKeyboardMarkup:
+def get_ai_keyboard(prompt_key: str) -> InlineKeyboardMarkup:
     """Создание клавиатуры для AI инструмента"""
     keyboard = [
         [InlineKeyboardButton("💡 Демо-сценарий (что он умеет?)", callback_data=f'demo_{prompt_key}')],
         [InlineKeyboardButton("✅ Активировать", callback_data=f'activate_{prompt_key}')],
         [InlineKeyboardButton("📊 Мой прогресс", callback_data='show_progress')],
-        [InlineKeyboardButton("🔙 Назад", callback_data=back_button)]
+        [InlineKeyboardButton("🔙 Назад в главное меню", callback_data='main_menu')]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -44,7 +42,7 @@ async def ai_selection_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     if callback_data.startswith("ai_") and callback_data.endswith("_self"):
         prompt_key = callback_data[3:-5]  # "ai_growth_expert_self" → "growth_expert"
     else:
-        # Резервный вариант (на случай будущих расширений)
+        # Резервный вариант
         parts = callback_data.split('_', 2)
         prompt_key = parts[1] if len(parts) > 1 else "unknown"
 
@@ -78,7 +76,7 @@ async def show_demo_scenario(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Получаем описание из DEMO_SCENARIOS
     text_content = DEMO_SCENARIOS.get(demo_key, "⚠️ Описание демо-сценария не найдено.")
     
-    # Кнопка "Назад" — всегда в главное меню
+    # Кнопка "Назад в главное меню"
     keyboard = [[InlineKeyboardButton("🔙 Назад в главное меню", callback_data='main_menu')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -93,10 +91,16 @@ async def activate_access(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     prompt_key = query.data.split('_', 1)[1]
+    
+    # Специальная обработка для skilltrainer
+    if prompt_key == 'skilltrainer':
+        from .skilltrainer import start_skilltrainer_session
+        await start_skilltrainer_session(update, context)
+        return BotState.SKILLTRAINER
+
+    # Для всех остальных — обычный режим
     context.user_data['active_groq_mode'] = prompt_key
-    
     display_name = prompt_key.replace('_', ' ').title()
-    
     await query.edit_message_text(
         f"✅ Режим **{display_name}** активирован!\n"
         f"Напишите ваш запрос, и {display_name} приступит к работе.\n"
@@ -186,6 +190,9 @@ def setup_ai_handlers(application: Application):
     ]
     for pattern in ai_patterns:
         application.add_handler(CallbackQueryHandler(ai_selection_handler, pattern=f"^{pattern}$"))
+
+    # SKILLTRAINER — отдельно, но через ту же логику выбора
+    application.add_handler(CallbackQueryHandler(ai_selection_handler, pattern='^ai_skilltrainer_business$'))
 
     # Демо и активация
     application.add_handler(CallbackQueryHandler(show_demo_scenario, pattern=r"^demo_[a-z_]+$"))
