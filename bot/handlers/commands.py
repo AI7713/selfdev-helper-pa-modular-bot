@@ -244,10 +244,10 @@ async def commands_menu_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 # ==============================================================================
-# ГЛАВНОЕ МЕНЮ (4 колонны)
+# ГЛАВНОЕ МЕНЮ (5 КНОПОК!)
 # ==============================================================================
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    """Показать главное меню с 4 кнопками"""
+    """Показать главное меню с 5 кнопками"""
     query = update.callback_query
     if query:
         await query.answer()
@@ -261,7 +261,8 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         [InlineKeyboardButton("🆓 БАЗОВЫЕ (ежедневные)", callback_data='basics_menu')],
         [InlineKeyboardButton("💡 ПРОФИ (платные)", callback_data='profi_menu')],
         [InlineKeyboardButton("🎓 ПРОГРАММЫ (скоро)", callback_data='programs_menu')],
-        [InlineKeyboardButton("👤 ИНДИВИДУАЛЬНЫЙ (под ключ)", callback_data='individual_menu')]
+        [InlineKeyboardButton("👤 ИНДИВИДУАЛЬНЫЙ (под ключ)", callback_data='individual_menu')],
+        [InlineKeyboardButton("❓ КОМАНДЫ", callback_data='commands_menu')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
