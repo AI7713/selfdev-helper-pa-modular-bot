@@ -15,7 +15,7 @@ from ..models import (
 )
 from ..utils import (
     generate_hud, generate_hint, check_gate, format_finish_packet,
-    split_message_efficiently, mask_pii  # ← ДОБАВЛЕН импорт mask_pii
+    split_message_efficiently, mask_pii
 )
 from .commands import update_usage_stats
 
@@ -151,6 +151,7 @@ async def handle_skilltrainer_mode(update: Update, context: ContextTypes.DEFAULT
     session = active_skill_sessions[user_id]
     mode_data = query.data.replace('st_mode_', '')
 
+    # 🔧 ИСПРАВЛЕНИЕ: обрабатываем 'info' и 'select' до проверки режимов
     if mode_data == 'info':
         descriptions_text = "**📚 ОПИСАНИЯ РЕЖИМОВ ТРЕНИРОВКИ:**\n"
         for description in TRAINING_MODE_DESCRIPTIONS.values():
@@ -158,6 +159,12 @@ async def handle_skilltrainer_mode(update: Update, context: ContextTypes.DEFAULT
         keyboard = [[InlineKeyboardButton("🔙 Назад к выбору", callback_data="st_mode_select")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(descriptions_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    if mode_data == 'select':
+        session.current_step = 6
+        session.state = SessionState.MODE_SELECTION
+        await send_skilltrainer_question(update, context, session)
         return
 
     if mode_data == 'cancel':
@@ -254,7 +261,7 @@ async def handle_training_start(update: Update, context: ContextTypes.DEFAULT_TY
 Формат ответа:
 **ЗАДАНИЕ:** [Название задания]
 **ИНСТРУКЦИЯ:** [Пошаговая инструкция]
-**КРИТЕРИИ УСПЕХА (DOD):**
+**КРИТЕРИИ УСПЕХА (DOD):
 1. [Критерий 1]
 2. [Критерий 2]
 3. [Критерий 3]
