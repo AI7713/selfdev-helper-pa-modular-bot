@@ -12,7 +12,7 @@ from ..models import (
     user_stats_cache, rate_limiter, ai_cache, BotState,
     user_conversation_history
 )
-from ..utils import send_long_message, split_message_efficiently, sanitize_user_input
+from ..utils import send_long_message, split_message_efficiently, sanitize_user_input, mask_pii
 from .commands import update_usage_stats
 
 
@@ -112,7 +112,7 @@ async def activate_access(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================================================================
-# ОСНОВНОЙ ОБРАБОТЧИК GROQ-ЗАПРОСОВ
+# ОСНОВНОЙ ОБРАБОТЧИК GROQ-ЗАПРОСОВ (С ФИЛЬТРАЦИЕЙ ПДн)
 # ==============================================================================
 async def handle_groq_request(update: Update, context: ContextTypes.DEFAULT_TYPE, prompt_key: str):
     groq_client = context.application.bot_data.get('groq_client')
@@ -122,6 +122,7 @@ async def handle_groq_request(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     user_id = update.message.from_user.id
     user_query = sanitize_user_input(update.message.text)
+    user_query = mask_pii(user_query)  # ← 🔒 ОБЕЗЛИЧИВАНИЕ ПДн
 
     # Проверка и очистка устаревшей истории (TTL = 1 час)
     if user_id in user_conversation_history:
@@ -157,7 +158,7 @@ async def handle_groq_request(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         response_text = chat_completion.choices[0].message.content
 
-        # Сохраняем в историю
+        # Сохраняем ОБЕЗЛИЧЕННЫЙ запрос и ответ
         history.append({"role": "user", "content": user_query})
         history.append({"role": "assistant", "content": response_text})
         user_conversation_history[user_id]['history'] = history[-15:]  # не более 15
