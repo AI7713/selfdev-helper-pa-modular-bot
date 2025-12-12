@@ -3,7 +3,6 @@ import random
 import re
 from typing import List, Tuple
 from datetime import datetime
-from telegram import constants
 from .models import SkillSession
 from .config import SKILLTRAINER_QUESTIONS, SKILLTRAINER_GATES, SKILLTRAINER_VERSION
 
@@ -12,18 +11,28 @@ def sanitize_user_input(text: str, max_length: int = 2000) -> str:
     """Очистка пользовательского ввода от опасных символов"""
     if not text:
         return ""
-    # Удаляем потенциально опасные символы
     cleaned = re.sub(r'[<>{}`|\\\-\t]', '', text)
-    # Оставляем только безопасные символы
     cleaned = ''.join(char for char in cleaned if char.isprintable() or char in '\r')
     return cleaned[:max_length]
+
+
+def mask_pii(text: str) -> str:
+    """Заменяет персональные данные на токены (PII masking для 152-ФЗ)"""
+    # ФИО (3 слова с заглавной буквы)
+    text = re.sub(r'\b([А-ЯЁ][а-яё]+)\s+([А-ЯЁ][а-яё]+)\s+([А-ЯЁ][а-яё]+)\b', '<PERSON>', text)
+    # Email
+    text = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '<EMAIL>', text)
+    # Телефон (простая маска)
+    text = re.sub(r'\+?\d[\d\-\s\(\)]{7,}\d', '<PHONE>', text)
+    # ИНН (10 или 12 цифр)
+    text = re.sub(r'\b\d{10}\b|\b\d{12}\b', '<TAX_ID>', text)
+    return text
 
 
 def split_message_efficiently(text: str, max_length: int = 4096) -> List[str]:
     """Разделение длинного сообщения на части для Telegram"""
     if len(text) <= max_length:
         return [text]
-    # Пытаемся разделить по предложениям
     sentences = text.split('. ')
     parts = []
     current_part = ""
@@ -37,7 +46,6 @@ def split_message_efficiently(text: str, max_length: int = 4096) -> List[str]:
             current_part = sentence + ". "
     if current_part:
         parts.append(current_part.strip())
-    # Если некоторые части всё ещё слишком длинные, разбиваем насильно
     final_parts = []
     for part in parts:
         if len(part) > max_length:
@@ -92,7 +100,6 @@ def generate_hint(session: SkillSession, context: str = "") -> str:
         "💡 Идея: Записывайте свои успехи. Даже маленькие победы создают прогресс и мотивацию.",
         "💡 Метод: Используйте технику '5 почему' чтобы докопаться до корня проблемы с навыком."
     ]
-    # Персонализированная подсказка если пользователю сложно
     if context and "сложн" in context.lower():
         return "💡 Если сложно: Начните с самого простого действия. Даже 2 минуты практики лучше, чем ничего."
     return random.choice(hints_library)
@@ -120,7 +127,6 @@ def format_finish_packet(session: SkillSession, ai_response: str) -> str:
 **📊 Пргресс:** {int(session.progress * 100)}%
 **🔍 КЛЮЧЕВЫЕ ОТВЕТЫ:**
 """
-    # Добавляем ответы пользователя
     for step, answer in session.answers.items():
         if step < len(SKILLTRAINER_QUESTIONS):
             question_num = SKILLTRAINER_QUESTIONS[step].split('**Шаг')[1].split(':**')[0]
