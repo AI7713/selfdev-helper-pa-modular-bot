@@ -5,7 +5,7 @@ from telegram.constants import ParseMode
 from datetime import datetime, timedelta
 from ..config import logger
 from ..models import BotState, active_skill_sessions, user_conversation_history
-from .commands import show_progress_callback_handler  # ← новая строка
+from .commands import show_usage_progress  # ← ИМПОРТИРУЕМ ТОЛЬКО ЭТО
 
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
@@ -26,7 +26,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         from .commands import start
         return await start(update, context)
     if user_text == "📊 Прогресс":
-        from .commands import show_usage_progress
         await show_usage_progress(update, context)
         return context.user_data.get('state', BotState.MAIN_MENU)
 
@@ -44,7 +43,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         return BotState.MAIN_MENU
 
     if any(word in user_text.lower() for word in ['прогресс', 'статистика', 'стата']):
-        from .commands import show_usage_progress
         await show_usage_progress(update, context)
         return BotState.MAIN_MENU
 
@@ -90,6 +88,8 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 def setup_main_handler(application: Application):
     """Настройка главного обработчика текстовых сообщений"""
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
-    # Добавляем обработчик для inline-кнопки "Мой прогресс"
-    application.add_handler(CallbackQueryHandler(show_progress_callback_handler, pattern='^show_progress$'))
+    
+    # РЕГИСТРИРУЕМ КНОПКУ «📊 Мой прогресс» — используем СУЩЕСТВУЮЩУЮ функцию
+    application.add_handler(CallbackQueryHandler(show_usage_progress, pattern='^show_progress$'))
+    
     logger.info("Главный обработчик сообщений настроен")
