@@ -22,10 +22,14 @@ def mask_pii(text: str) -> str:
     text = re.sub(r'\b([А-ЯЁ][а-яё]+)\s+([А-ЯЁ][а-яё]+)\s+([А-ЯЁ][а-яё]+)\b', '<PERSON>', text)
     # Email
     text = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '<EMAIL>', text)
-    # Телефон (простая маска)
+    # Телефон
     text = re.sub(r'\+?\d[\d\-\s\(\)]{7,}\d', '<PHONE>', text)
     # ИНН (10 или 12 цифр)
     text = re.sub(r'\b\d{10}\b|\b\d{12}\b', '<TAX_ID>', text)
+    # Банковская карта (16 цифр с пробелами/дефисами)
+    text = re.sub(r'\b(?:\d{4}[\s\-]?){3}\d{4}\b', '<CARD>', text)
+    # Паспорт (серия и номер: 2 цифры, пробел, 2 цифры, пробел, 6 цифр)
+    text = re.sub(r'\b\d{2}\s\d{2}\s\d{6}\b', '<PASSPORT>', text)
     return text
 
 
