@@ -1,173 +1,61 @@
-"""
-Обработчики AI запросов к Groq API (с поддержкой кэша истории на 15 шагов)
-"""
-import asyncio
+"""Обработчики AI-инструментов (Мудрец, Стратег, SKILLTRAINER и др.)"""
+import re
+import random
 from typing import Optional
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, Application, CallbackQueryHandler
+from telegram.ext import ContextTypes, Application, CallbackQueryHandler, CommandHandler
 from telegram.constants import ParseMode
-from groq import Groq, APIError
-from datetime import datetime, timedelta
-
 from ..config import (
-    logger, SYSTEM_PROMPTS, DEMO_SCENARIOS
+    logger, SYSTEM_PROMPTS, DEMO_SCENARIOS, REPLY_KEYBOARD_MARKUP,
+    BOT_VERSION, CONFIG_VERSION, SKILLTRAINER_VERSION
 )
-from ..models import rate_limiter, ai_cache, BotState, user_conversation_history
-from ..utils import sanitize_user_input, split_message_efficiently
-from .commands import update_usage_stats
+from ..models import (
+    user_stats_cache, rate_limiter, ai_cache, BotState,
+    user_conversation_history
+)
+from ..utils import send_long_message, split_message_efficiently, sanitize_user_input
+from .commands import update_usage_stats, show_main_menu
 
 
 # ==============================================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ==============================================================================
-
-async def send_long_message(chat_id: int, text: str, context: ContextTypes.DEFAULT_TYPE,
-                          prefix: str = "", parse_mode: str = None):
-    parts = split_message_efficiently(text)
-    total_parts = len(parts)
-    for i, part in enumerate(parts, 1):
-        part_prefix = prefix if total_parts == 1 else f"{prefix}*({i}/{total_parts})*\n"
-        await context.bot.send_message(chat_id, f"{part_prefix}{part}", parse_mode=parse_mode)
-
-
-async def handle_groq_request(update: Update, context: ContextTypes.DEFAULT_TYPE, prompt_key: str):
-    groq_client: Optional[Groq] = context.application.bot_data.get('groq_client')
-    if not groq_client:
-        await update.message.reply_text("❌ AI функции временно недоступны. Попробуйте позже.")
-        return
-    if not update.message:
-        return
-    user_id = update.message.from_user.id
-
-    # === ПРОВЕРКА TTL И ОЧИСТКА ИСТОРИИ ===
-    now = datetime.now()
-    if user_id in user_conversation_history:
-        last_activity = user_conversation_history[user_id]["last_activity"]
-        if now - last_activity > timedelta(hours=1):
-            del user_conversation_history[user_id]
-        else:
-            user_conversation_history[user_id]["last_activity"] = now
-    else:
-        user_conversation_history[user_id] = {
-            "history": [],
-            "last_activity": now
-        }
-
-    if not rate_limiter.is_allowed(user_id):
-        await update.message.reply_text("🚫 Слишком много запросов. Подождите минуту.")
-        return
-
-    user_query = sanitize_user_input(update.message.text)
-    system_prompt = SYSTEM_PROMPTS.get(prompt_key, "Вы — полезный ассистент.")
-
-    # === СОБИРАЕМ ИСТОРИЮ (МАКС. 15 СООБЩЕНИЙ) ===
-    history = user_conversation_history[user_id]["history"][-15:]  # последние 15 сообщений
-
-    await update.message.chat.send_message(
-        f"⌛ **{prompt_key.capitalize()}** обрабатывает ваш запрос...",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-    try:
-        # Проверяем кэш (без истории — только текущий запрос)
-        cached_response = ai_cache.get_cached_response(prompt_key, user_query)
-        if cached_response:
-            await send_long_message(
-                update.message.chat.id,
-                cached_response,
-                context,
-                prefix=f"🤖 Ответ {prompt_key.capitalize()} (из кэша):\n",
-                parse_mode=None
-            )
-            await update_usage_stats(user_id, 'ai')
-            return
-
-        # === ОТПРАВЛЯЕМ В GROQ: SYSTEM + ИСТОРИЯ + ТЕКУЩИЙ ЗАПРОС ===
-        messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(history)
-        messages.append({"role": "user", "content": user_query})
-
-        chat_completion = groq_client.chat.completions.create(
-            messages=messages,
-            model="llama-3.1-8b-instant",
-            max_tokens=4000
-        )
-        ai_response = chat_completion.choices[0].message.content
-
-        # === СОХРАНЯЕМ В ИСТОРИЮ ===
-        user_conversation_history[user_id]["history"].extend([
-            {"role": "user", "content": user_query},
-            {"role": "assistant", "content": ai_response}
-        ])
-        # Ограничиваем 15 сообщениями
-        user_conversation_history[user_id]["history"] = user_conversation_history[user_id]["history"][-15:]
-
-        ai_cache.cache_response(prompt_key, user_query, ai_response)
-        await send_long_message(
-            update.message.chat.id,
-            ai_response,
-            context,
-            prefix=f"🤖 Ответ {prompt_key.capitalize()}:\n",
-            parse_mode=None
-        )
-        await update_usage_stats(user_id, 'ai')
-
-    except APIError as e:
-        logger.error(f"ОШИБКА GROQ API: {e}")
-        if e.status_code == 429:
-            user_message = "❌ **Превышен лимит запросов.** Подождите минуту."
-        elif e.status_code == 400:
-            user_message = "❌ **Ошибка 400: Неверный запрос или лимиты.**"
-        elif e.status_code == 401:
-            user_message = "❌ **Ошибка 401: Неверный API ключ.**"
-        else:
-            user_message = f"❌ **Ошибка Groq API:** Код {e.status_code}"
-        await update.message.chat.send_message(user_message, parse_mode=ParseMode.MARKDOWN)
-    except Exception as e:
-        logger.error(f"Неизвестная ошибка: {e}")
-        await update.message.chat.send_message(
-            "Произошла ошибка при обращении к AI.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-
-# ==============================================================================
-# ОСТАЛЬНЫЕ ФУНКЦИИ (БЕЗ ИЗМЕНЕНИЙ)
-# ==============================================================================
-
-async def show_demo_scenario(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    query = update.callback_query
-    await query.answer()
-    demo_key = query.data.split('_')[1]
-    text_content = DEMO_SCENARIOS.get(demo_key, "⚠️ Описание демо-сценария не найдено.")
-    # ВСЕГДА возвращаем в главное меню
-    keyboard = [[InlineKeyboardButton("🔙 Назад к выбору AI", callback_data='main_menu')]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(text_content, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
-    context.user_data['state'] = BotState.AI_SELECTION
-    return BotState.AI_SELECTION
-
-
-def get_ai_keyboard(prompt_key: str) -> InlineKeyboardMarkup:
-    """Упрощённая клавиатура: «Назад» ведёт только в главное меню"""
+def get_ai_keyboard(prompt_key: str, back_button: str = 'main_menu') -> InlineKeyboardMarkup:
+    """Создание клавиатуры для AI инструмента"""
     keyboard = [
         [InlineKeyboardButton("💡 Демо-сценарий (что он умеет?)", callback_data=f'demo_{prompt_key}')],
         [InlineKeyboardButton("✅ Активировать", callback_data=f'activate_{prompt_key}')],
         [InlineKeyboardButton("📊 Мой прогресс", callback_data='show_progress')],
-        [InlineKeyboardButton("🔙 В главное меню", callback_data='main_menu')]
+        [InlineKeyboardButton("🔙 Назад", callback_data=back_button)]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 
+# ==============================================================================
+# ОБРАБОТЧИК ВЫБОРА ИНСТРУМЕНТА
+# ==============================================================================
 async def ai_selection_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     query = update.callback_query
     await query.answer()
-    callback_data = query.data
-    prompt_key = callback_data.split('_')[1]
+    
+    callback_data = query.data  # Пример: "ai_growth_expert_self"
+    # Извлекаем ключ: убираем "ai_" и "_self"
+    if callback_data.startswith("ai_") and callback_data.endswith("_self"):
+        prompt_key = callback_data[3:-5]  # "ai_growth_expert_self" → "growth_expert"
+    else:
+        # Резервный вариант (на случай будущих расширений)
+        parts = callback_data.split('_', 2)
+        prompt_key = parts[1] if len(parts) > 1 else "unknown"
+
     context.user_data['current_ai_key'] = prompt_key
     reply_markup = get_ai_keyboard(prompt_key)
+    
+    # Формируем название: "growth_expert" → "Growth Expert"
+    display_name = prompt_key.replace('_', ' ').title()
+    
     await query.edit_message_text(
-        f"Вы выбрали **{prompt_key.capitalize()}**.\n"
+        f"Вы выбрали **{display_name}**.\n"
         f"Чтобы начать, изучите демо-сценарий или активируйте доступ.",
         reply_markup=reply_markup,
         parse_mode=ParseMode.MARKDOWN
@@ -177,50 +65,130 @@ async def ai_selection_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     return BotState.AI_SELECTION
 
 
-async def activate_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
+# ==============================================================================
+# ДЕМО-СЦЕНАРИЙ
+# ==============================================================================
+async def show_demo_scenario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    prompt_key = query.data.split('_')[1]
-    if prompt_key == 'skilltrainer':
-        from .skilltrainer import start_skilltrainer_session
-        await start_skilltrainer_session(update, context)
-        return BotState.AI_SELECTION
+    
+    # Извлекаем ключ: demo_growth_expert → growth_expert
+    demo_key = query.data.split('_', 1)[1]
+    
+    # Получаем описание из DEMO_SCENARIOS
+    text_content = DEMO_SCENARIOS.get(demo_key, "⚠️ Описание демо-сценария не найдено.")
+    
+    # Кнопка "Назад" — всегда в главное меню
+    keyboard = [[InlineKeyboardButton("🔙 Назад в главное меню", callback_data='main_menu')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(text_content, reply_markup=reply_markup, parse_mode=None)
+
+
+# ==============================================================================
+# АКТИВАЦИЯ ДОСТУПА
+# ==============================================================================
+async def activate_access(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    prompt_key = query.data.split('_', 1)[1]
     context.user_data['active_groq_mode'] = prompt_key
+    
+    display_name = prompt_key.replace('_', ' ').title()
+    
     await query.edit_message_text(
-        f"✅ Режим **{prompt_key.capitalize()}** активирован!\n"
-        f"Напишите ваш первый запрос, и {prompt_key.capitalize()} приступит к работе.\n"
-        f"Чтобы сменить режим, используйте команду /start.",
+        f"✅ Режим **{display_name}** активирован!\n"
+        f"Напишите ваш запрос, и {display_name} приступит к работе.\n"
+        f"Чтобы сменить инструмент, нажмите 🏠 Меню или введите /start.",
         parse_mode=ParseMode.MARKDOWN
     )
     context.user_data['state'] = BotState.AI_SELECTION
     return BotState.AI_SELECTION
 
 
-async def show_progress_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    query = update.callback_query
-    await query.answer()
-    from .commands import show_usage_progress, get_personal_recommendation
-    await show_usage_progress(update, context)
-    user_id = query.from_user.id
-    recommendation = await get_personal_recommendation(user_id)
-    await query.message.reply_text(recommendation, parse_mode=ParseMode.MARKDOWN)
-    return BotState.MAIN_MENU
+# ==============================================================================
+# ОСНОВНОЙ ОБРАБОТЧИК GROQ-ЗАПРОСОВ
+# ==============================================================================
+async def handle_groq_request(update: Update, context: ContextTypes.DEFAULT_TYPE, prompt_key: str):
+    groq_client = context.application.bot_data.get('groq_client')
+    if not groq_client:
+        await update.message.reply_text("❌ AI функции временно недоступны. Попробуйте позже.")
+        return
+
+    user_id = update.message.from_user.id
+    user_query = sanitize_user_input(update.message.text)
+
+    # Проверка и очистка устаревшей истории (TTL = 1 час)
+    if user_id in user_conversation_history:
+        last_activity = user_conversation_history[user_id]['last_activity']
+        if (datetime.now() - last_activity).total_seconds() > 3600:
+            del user_conversation_history[user_id]
+
+    # Формируем историю
+    if user_id not in user_conversation_history:
+        user_conversation_history[user_id] = {
+            'history': [],
+            'last_activity': datetime.now()
+        }
+    
+    history = user_conversation_history[user_id]['history']
+    system_prompt = SYSTEM_PROMPTS.get(prompt_key, "Ответь кратко и полезно.")
+
+    # Подготавливаем сообщения (макс. 15 шагов)
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(history[-14:])  # последние 14, + новый = 15
+    messages.append({"role": "user", "content": user_query})
+
+    # Отправляем "ожидание"
+    await update.message.reply_text("⏳ Обрабатываю ваш запрос...", parse_mode=None)
+
+    try:
+        # Генерация ответа
+        chat_completion = groq_client.chat.completions.create(
+            messages=messages,
+            model="llama-3.1-8b-instant",
+            max_tokens=2000,
+            temperature=0.7
+        )
+        response_text = chat_completion.choices[0].message.content
+
+        # Сохраняем в историю
+        history.append({"role": "user", "content": user_query})
+        history.append({"role": "assistant", "content": response_text})
+        user_conversation_history[user_id]['history'] = history[-15:]  # не более 15
+        user_conversation_history[user_id]['last_activity'] = datetime.now()
+
+        # Отправляем ответ
+        await send_long_message(
+            update.message.chat.id,
+            response_text,
+            context,
+            prefix=f"🤖 {prompt_key.replace('_', ' ').title()}: ",
+            parse_mode=None
+        )
+        await update_usage_stats(user_id, 'ai')
+
+    except Exception as e:
+        logger.error(f"Ошибка Groq: {e}")
+        await update.message.reply_text("❌ Произошла ошибка при обработке запроса. Попробуйте позже.")
 
 
 # ==============================================================================
 # НАСТРОЙКА ОБРАБОТЧИКОВ
 # ==============================================================================
-
 def setup_ai_handlers(application: Application):
-    """
-    Настройка AI-обработчиков (без старых menu_self/menu_business)
-    """
-    # Единственный обработчик главного меню — из commands.py
-    from .commands import show_main_menu
-    application.add_handler(CallbackQueryHandler(show_main_menu, pattern='^main_menu$'))
-    # Остальные обработчики
-    application.add_handler(CallbackQueryHandler(ai_selection_handler, pattern='^ai_.*_self$|^ai_.*_business$'))
-    application.add_handler(CallbackQueryHandler(show_demo_scenario, pattern='^demo_.*$'))
-    application.add_handler(CallbackQueryHandler(activate_access, pattern='^activate_.*$'))
-    application.add_handler(CallbackQueryHandler(show_progress_handler, pattern='^show_progress$'))
+    # Основные AI-инструменты (все 11)
+    ai_patterns = [
+        'ai_sage_self', 'ai_strategist_self', 'ai_mentor_self', 'ai_ideator_self',
+        'ai_editor_self', 'ai_growth_expert_self', 'ai_hr_advisor_self', 'ai_mediator_self',
+        'ai_daily_phrase_self', 'ai_mind_horoscope_self', 'ai_daily_reflection_self'
+    ]
+    for pattern in ai_patterns:
+        application.add_handler(CallbackQueryHandler(ai_selection_handler, pattern=f"^{pattern}$"))
+
+    # Демо и активация
+    application.add_handler(CallbackQueryHandler(show_demo_scenario, pattern=r"^demo_[a-z_]+$"))
+    application.add_handler(CallbackQueryHandler(activate_access, pattern=r"^activate_[a-z_]+$"))
+
     logger.info("AI обработчики настроены")
