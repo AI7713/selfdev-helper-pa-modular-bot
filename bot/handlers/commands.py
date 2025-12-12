@@ -244,35 +244,10 @@ async def commands_menu_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 # ==============================================================================
-# СОГЛАСИЕ НА ОБРАБОТКУ ПДн
-# ==============================================================================
-async def consent_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    """Обработчик согласия на обработку ПДн"""
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-
-    # Показываем нижнюю клавиатуру
-    await query.message.reply_text(
-        "👋 Привет! Используйте нижнюю панель для навигации.",
-        reply_markup=REPLY_KEYBOARD_MARKUP
-    )
-
-    # Показываем прогресс, если уже использовали
-    stats = await get_usage_stats(user_id)
-    if stats['tools_used'] > 0:
-        await show_usage_progress(update, context)
-
-    # Показываем главное меню
-    await show_main_menu(update, context)
-    return BotState.MAIN_MENU
-
-
-# ==============================================================================
-# ГЛАВНОЕ МЕНЮ (5 кнопок)
+# ГЛАВНОЕ МЕНЮ (4 колонны)
 # ==============================================================================
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    """Показать главное меню с 5 кнопками"""
+    """Показать главное меню с 4 кнопками"""
     query = update.callback_query
     if query:
         await query.answer()
@@ -286,8 +261,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         [InlineKeyboardButton("🆓 БАЗОВЫЕ (ежедневные)", callback_data='basics_menu')],
         [InlineKeyboardButton("💡 ПРОФИ (платные)", callback_data='profi_menu')],
         [InlineKeyboardButton("🎓 ПРОГРАММЫ (скоро)", callback_data='programs_menu')],
-        [InlineKeyboardButton("👤 ИНДИВИДУАЛЬНЫЙ (под ключ)", callback_data='individual_menu')],
-        [InlineKeyboardButton("❓ КОМАНДЫ", callback_data='commands_menu')]
+        [InlineKeyboardButton("👤 ИНДИВИДУАЛЬНЫЙ (под ключ)", callback_data='individual_menu')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -305,7 +279,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "Следите за обновлениями!\n\n"
         "👤 ИНДИВИДУАЛЬНЫЙ ПРОМТ (под ключ) — если вам нужен промт под вашу задачу, напишите мне:\n"
         "mo.om-mo2016@yandex.ru\n\n"
-        "❓ КОМАНДЫ — список всех команд: /start, /progress, /clear_history и другие."
+        "🔒 Все данные обезличиваются. Используя бота, вы соглашаетесь с обработкой обезличенных данных."
     )
     
     if query:
@@ -316,30 +290,32 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 # ==============================================================================
-# КОМАНДА /start — ОЧИЩАЕТ ИСТОРИЮ, ПОКАЗЫВАЕТ СОГЛАСИЕ
+# КОМАНДА /start — ОЧИЩАЕТ ИСТОРИЮ И ПОКАЗЫВАЕТ ГЛАВНОЕ МЕНЮ
 # ==============================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    """Обработчик команды /start — показывает согласие на ПДн"""
+    """Обработчик команды /start — главное меню"""
     if not update.message:
         return BotState.MAIN_MENU
 
     user_id = update.message.from_user.id
 
-    # Очистка истории и сессий
     if user_id in user_conversation_history:
         del user_conversation_history[user_id]
     if user_id in active_skill_sessions:
         del active_skill_sessions[user_id]
 
-    # Показываем согласие
-    consent_text = (
-        "🔒 Вы используете AI-бота.\n"
-        "Все данные обезличиваются перед отправкой в обработку.\n"
-        "Нажимая «✅ Продолжить», вы соглашаетесь с обработкой обезличенных данных."
+    await update.message.reply_text(
+        "👋 Привет! Используйте нижнюю панель для навигации.",
+        reply_markup=REPLY_KEYBOARD_MARKUP
     )
-    keyboard = [[InlineKeyboardButton("✅ Продолжить", callback_data='consent_given')]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(consent_text, reply_markup=reply_markup)
+
+    stats = await get_usage_stats(user_id)
+    if stats['tools_used'] > 0:
+        await show_usage_progress(update, context)
+
+    await show_main_menu(update, context)
+
+    logger.info(f"{BOT_VERSION} - User {user_id} started bot (Group: {stats['ab_test_group']})")
     return BotState.MAIN_MENU
 
 
@@ -385,7 +361,6 @@ async def referral_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # НАСТРОЙКА ОБРАБОТЧИКОВ
 # ==============================================================================
 def setup_commands(application: Application):
-    # Основные команды
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("version", version_command))
@@ -393,13 +368,11 @@ def setup_commands(application: Application):
     application.add_handler(CommandHandler("referral", referral_command))
     application.add_handler(CommandHandler("clear_history", clear_history_command))
 
-    # Callback-меню
     application.add_handler(CallbackQueryHandler(show_main_menu, pattern='^main_menu$'))
     application.add_handler(CallbackQueryHandler(basics_menu_handler, pattern='^basics_menu$'))
     application.add_handler(CallbackQueryHandler(profi_menu_handler, pattern='^profi_menu$'))
     application.add_handler(CallbackQueryHandler(programs_menu_handler, pattern='^programs_menu$'))
     application.add_handler(CallbackQueryHandler(individual_menu_handler, pattern='^individual_menu$'))
     application.add_handler(CallbackQueryHandler(commands_menu_handler, pattern='^commands_menu$'))
-    application.add_handler(CallbackQueryHandler(consent_handler, pattern='^consent_given$'))
 
     logger.info("Командные обработчики настроены")
