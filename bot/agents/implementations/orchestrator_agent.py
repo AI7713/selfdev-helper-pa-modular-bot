@@ -1,5 +1,4 @@
 # bot/agents/implementations/orchestrator_agent.py
-
 import os
 from typing import Dict, Any, Optional
 from telegram import Update
@@ -57,7 +56,16 @@ class OrchestratorAgent(BaseAgent):
             "Помогу вам превратить идею в измеримый результат с участием коллегии экспертов.\n\n"
             "Опишите:\n• Желаемый результат\n• Дедлайн\n• Для кого (целевая аудитория)"
         )
-        await update.message.reply_text(message)
+        # 🔧 Безопасная отправка — через callback_query ИЛИ message
+        if update.callback_query:
+            await update.callback_query.message.reply_text(message)
+            await update.callback_query.answer()  # подтверждаем нажатие
+        elif update.message:
+            await update.message.reply_text(message)
+        else:
+            # Резервный вариант — отправка по chat_id
+            chat_id = update.effective_chat.id
+            await context.bot.send_message(chat_id=chat_id, text=message)
     
     async def handle_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_input: str):
         """Обработка входного сообщения"""
@@ -87,7 +95,7 @@ class OrchestratorAgent(BaseAgent):
             await update.message.reply_text("❌ Не удалось получить ответ. Попробуйте позже.")
             return
         
-        # 5. Обновление состояния (в реальности — из ответа LLM)
+        # 5. Обновление состояния (в простом режиме — первый доступный следующий блок)
         next_block = self._determine_next_block(current_block, response)
         self.session_data['current_block'] = next_block
         
