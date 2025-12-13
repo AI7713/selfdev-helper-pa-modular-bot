@@ -74,6 +74,11 @@ async def show_demo_scenario(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def activate_access(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    
+    # 🔥 ОСНОВНОЕ ИСПРАВЛЕНИЕ: ОЧИСТКА АКТИВНОГО АГЕНТА ПРИ ЛЮБОЙ АКТИВАЦИИ
+    if 'active_agent' in context.user_data:
+        del context.user_data['active_agent']
+    
     prompt_key = query.data.split('_', 1)[1]
     # Специальная обработка для skilltrainer
     if prompt_key == 'skilltrainer':
@@ -88,17 +93,14 @@ async def activate_access(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not groq_client:
             await update.callback_query.message.reply_text("❌ AI недоступен.")
             return BotState.MAIN_MENU
-
         # Создаём агента и сохраняем в user_data
         agent = OrchestratorAgent(user_id, groq_client)
         context.user_data['active_agent'] = agent
-
         # Запускаем
         await agent.start_session(update, context)
         context.user_data['state'] = BotState.AI_SELECTION
         context.user_data['active_groq_mode'] = None  # отключаем старый режим
         return BotState.AI_SELECTION
-
     # Для всех остальных — обычный режим
     context.user_data['active_groq_mode'] = prompt_key
     display_name = prompt_key.replace('_', ' ').title()
