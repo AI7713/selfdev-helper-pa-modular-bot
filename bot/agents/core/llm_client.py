@@ -31,7 +31,7 @@ class LLMClient:
                 temperature=0.7
             )
             result = response.choices[0].message.content
-            ai_cache.cache_response("orchestrator", clean_query, result)  # ✅ Сохраняем
+            ai_cache.cache_response("orchestrator", clean_query, result)
             return result
         except Exception as e:
             print(f"LLMClient error: {e}")
