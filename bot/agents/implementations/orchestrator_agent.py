@@ -1,7 +1,7 @@
 # bot/agents/implementations/orchestrator_agent.py
 import os
-from typing import Dict, Any, Optional
-from telegram import Update
+from typing import Dict, Any
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from ..core.agent_base import BaseAgent
 from ..core.state_machine import StateMachine
@@ -9,6 +9,7 @@ from ..core.gate_manager import GateManager
 from ..core.ui_manager import generate_hud
 from ..core.command_processor import CommandProcessor
 from ..core.llm_client import LLMClient
+
 
 class OrchestratorAgent(BaseAgent):
     """
@@ -27,7 +28,7 @@ class OrchestratorAgent(BaseAgent):
         self.llm_client = LLMClient(groq_client)
         self._register_commands()
         self.session_data['settings'] = self.state_machine.config.get('default_settings', {})
-    
+
     def _register_commands(self):
         commands = self.state_machine.config.get('commands', [])
         for cmd in commands:
@@ -35,7 +36,7 @@ class OrchestratorAgent(BaseAgent):
             aliases = cmd.get('alias', [])
             for alias in aliases:
                 self.command_processor.register(alias.lstrip('/'), self._handle_command)
-    
+
     async def start_session(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self.session_data['current_block'] = 'B0'
         message = (
@@ -53,14 +54,15 @@ class OrchestratorAgent(BaseAgent):
             await context.bot.send_message(chat_id=chat_id, text=message)
 
     async def handle_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_input: str):
-        # 1. Сохраняем ввод пользователя
         current_block = self.session_data['current_block']
+
+        # 1. Сохраняем ввод пользователя по блокам
         if current_block == 'B0':
             self.session_data['raw_description'] = user_input
         elif current_block == 'B1.a':
             self.session_data['refinements'] = user_input
 
-        # 2. Проверка команд
+        # 2. Обработка команд (например, /s-check, /вернуться)
         cmd_info = self.command_processor.process(user_input, self.session_data)
         if cmd_info:
             handler = cmd_info['handler']
@@ -68,25 +70,14 @@ class OrchestratorAgent(BaseAgent):
                 await handler(update, context, cmd_info)
             return
 
-        # 3. Гейт — только если явно требуется
-        if self.state_machine.is_gated(current_block):
-            passed, msg = self.gate_manager.check_gate(current_block, self.session_data)
-            if not passed:
-                await update.message.reply_text(f"⛔ {msg}\nИсправьте и повторите.")
-                return
-
-        # 4. Вызов LLM
+        # 3. Вызов LLM с динамическим промтом
         system_prompt = self._build_dynamic_prompt(current_block)
         response = await self.llm_client.call_llm(system_prompt, user_input)
         if not response:
             await update.message.reply_text("❌ Не удалось получить ответ. Попробуйте позже.")
             return
 
-        # 🔥 ВАЖНО: НЕ ИЗМЕНЯЕМ БЛОК АВТОМАТИЧЕСКИ
-        # next_block = self._determine_next_block(current_block, response)
-        # self.session_data['current_block'] = next_block
-
-        # 5. Отправка ответа
+        # 4. Отправка ответа с HUD
         hud = generate_hud(self.agent_name, self.session_data)
         full_response = f"{hud}\n\n{response}"
         from bot.utils import send_long_message
@@ -98,12 +89,8 @@ class OrchestratorAgent(BaseAgent):
             parse_mode=None
         )
 
-        # 6. КНОПКИ — ТОЛЬКО ПОСЛЕ B1.b (временно)
-        if current_block == 'B0':
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-            keyboard = [[InlineKeyboardButton("➡️ Продолжить к уточнениям", callback_data="orch_action:go_to_B1a")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text("Нажмите, чтобы продолжить:", reply_markup=reply_markup)
+        # 5. КНОПКИ — в зависимости от блока
+        await self._send_contextual_buttons(update, context, current_block)
 
     def _build_dynamic_prompt(self, block_id: str) -> str:
         block_config = self.state_machine.get_block_config(block_id)
@@ -117,17 +104,38 @@ class OrchestratorAgent(BaseAgent):
         prompt += f"[НАСТРОЙКИ: mode={settings.get('mode', 'coach')}, risk_appetite={settings.get('risk_appetite', 'medium')}]\n"
         return prompt
 
+    async def _send_contextual_buttons(self, update: Update, context: ContextTypes.DEFAULT_TYPE, block_id: str):
+        """Отправка кнопок в зависимости от текущего блока"""
+        if block_id == 'B0':
+            keyboard = [[InlineKeyboardButton("➡️ Перейти к уточнениям (B1.a)", callback_data="orch_action:go_to_B1a")]]
+            await update.message.reply_text(
+                "Что дальше?",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        elif block_id == 'B1.b':
+            keyboard = [
+                [InlineKeyboardButton("✅ Подтвердить формулировку", callback_data="orch_action:confirm_B1b")],
+                [InlineKeyboardButton("🔁 Уточнить ЦА", callback_data="orch_action:refine_ca")],
+                [InlineKeyboardButton("📊 Показать Mini Pre-flight", callback_data="orch_action:show_preflight")],
+                [InlineKeyboardButton("🔍 /s-check", callback_data="orch_cmd:s-check")]
+            ]
+            await update.message.reply_text(
+                "Выберите действие:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        # Дополнительные блоки — по мере реализации
+
     async def _handle_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE, cmd_info: Dict[str, Any]):
         command = cmd_info['command']
         args = cmd_info.get('args', '')
         if command == 's-check':
-            await update.message.reply_text("🔍 Запускаю S-CHECK...")
+            await update.message.reply_text("🔍 Запускаю S-CHECK (Self-Critique)...")
         elif command == 'вернуться':
-            if args:
-                self.session_data['current_block'] = args.strip()
-                await update.message.reply_text(f"↩️ Возврат к блоку: {args}")
-            else:
-                await update.message.reply_text("Укажите ID блока, например: `/вернуться B1.b`")
+            target_block = args.strip() if args else 'B0'
+            self.session_data['current_block'] = target_block
+            await update.message.reply_text(f"↩️ Возврат к блоку: {target_block}")
+        elif command == 'benchmarks':
+            await update.message.reply_text("📈 Запрашиваю бенчмарки...")
         else:
             await update.message.reply_text(f"🛠️ Команда `{command}` получена.")
 
