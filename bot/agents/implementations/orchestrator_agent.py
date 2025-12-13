@@ -17,24 +17,19 @@ class OrchestratorAgent(BaseAgent):
 
     def __init__(self, user_id: int, groq_client):
         super().__init__(user_id, "Оркестратор")
-        
         # Пути к конфигурации
         config_path = os.path.join(os.path.dirname(__file__), '..', 'configs', 'orchestrator.yaml')
         prompt_path = os.path.join(os.path.dirname(__file__), '..', 'prompts', 'orchestrator.txt')
-        
         # Загрузка конфигурации и промта
         self.state_machine = StateMachine(config_path)
         with open(prompt_path, 'r', encoding='utf-8') as f:
             self.system_prompt = f.read()
-        
         # Инициализация компонентов ядра
         self.gate_manager = GateManager(self.state_machine.config.get('gates', {}))
         self.command_processor = CommandProcessor()
         self.llm_client = LLMClient(groq_client)
-        
         # Регистрация команд
         self._register_commands()
-        
         # Инициализация настроек из YAML
         self.session_data['settings'] = self.state_machine.config.get('default_settings', {})
     
@@ -99,10 +94,17 @@ class OrchestratorAgent(BaseAgent):
         next_block = self._determine_next_block(current_block, response)
         self.session_data['current_block'] = next_block
         
-        # 6. Отправка ответа + HUD
+        # 6. Отправка ответа + HUD — С ИСПОЛЬЗОВАНИЕМ send_long_message
         hud = generate_hud(self.agent_name, self.session_data)
         full_response = f"{hud}\n\n{response}"
-        await update.message.reply_text(full_response)
+        from bot.utils import send_long_message
+        await send_long_message(
+            chat_id=update.message.chat.id,
+            text=full_response,
+            context=context,
+            prefix="",
+            parse_mode=None
+        )
     
     def _build_dynamic_prompt(self, block_id: str) -> str:
         """Сборка системного промта с учётом текущего блока и настроек"""
