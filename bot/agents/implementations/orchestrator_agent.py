@@ -12,10 +12,6 @@ from ..core.llm_client import LLMClient
 
 
 class OrchestratorAgent(BaseAgent):
-    """
-    Агент «Оркестратор проекта с коллегией экспертов» — V2.5
-    """
-
     def __init__(self, user_id: int, groq_client):
         super().__init__(user_id, "Оркестратор")
         config_path = os.path.join(os.path.dirname(__file__), '..', 'configs', 'orchestrator.yaml')
@@ -53,16 +49,21 @@ class OrchestratorAgent(BaseAgent):
             chat_id = update.effective_chat.id
             await context.bot.send_message(chat_id=chat_id, text=message)
 
+        # 🔥 СРАЗУ ПОКАЗЫВАЕМ КНОПКУ ПОСЛЕ B0
+        keyboard = [[InlineKeyboardButton("➡️ Перейти к уточнениям (B1.a)", callback_data="orch_action:go_to_B1a")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.effective_message.reply_text("Что дальше?", reply_markup=reply_markup)
+
     async def handle_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_input: str):
         current_block = self.session_data['current_block']
 
-        # 1. Сохраняем ввод пользователя по блокам
+        # 1. Сохраняем ввод
         if current_block == 'B0':
             self.session_data['raw_description'] = user_input
         elif current_block == 'B1.a':
             self.session_data['refinements'] = user_input
 
-        # 2. Обработка команд (например, /s-check, /вернуться)
+        # 2. Обработка команд
         cmd_info = self.command_processor.process(user_input, self.session_data)
         if cmd_info:
             handler = cmd_info['handler']
@@ -70,14 +71,19 @@ class OrchestratorAgent(BaseAgent):
                 await handler(update, context, cmd_info)
             return
 
-        # 3. Вызов LLM с динамическим промтом
+        # 3. Вызов LLM
         system_prompt = self._build_dynamic_prompt(current_block)
+        # 🔥 Добавляем контекст из session_data, если есть
+        if current_block == 'B1.a':
+            raw_desc = self.session_data.get('raw_description', 'не указано')
+            system_prompt += f"\n\n[ВВОД ПОЛЬЗОВАТЕЛЯ В B0: {raw_desc}]"
+
         response = await self.llm_client.call_llm(system_prompt, user_input)
         if not response:
             await update.message.reply_text("❌ Не удалось получить ответ. Попробуйте позже.")
             return
 
-        # 4. Отправка ответа с HUD
+        # 4. Отправка ответа
         hud = generate_hud(self.agent_name, self.session_data)
         full_response = f"{hud}\n\n{response}"
         from bot.utils import send_long_message
@@ -88,9 +94,6 @@ class OrchestratorAgent(BaseAgent):
             prefix="",
             parse_mode=None
         )
-
-        # 5. КНОПКИ — в зависимости от блока
-        await self._send_contextual_buttons(update, context, current_block)
 
     def _build_dynamic_prompt(self, block_id: str) -> str:
         block_config = self.state_machine.get_block_config(block_id)
@@ -105,25 +108,8 @@ class OrchestratorAgent(BaseAgent):
         return prompt
 
     async def _send_contextual_buttons(self, update: Update, context: ContextTypes.DEFAULT_TYPE, block_id: str):
-        """Отправка кнопок в зависимости от текущего блока"""
-        if block_id == 'B0':
-            keyboard = [[InlineKeyboardButton("➡️ Перейти к уточнениям (B1.a)", callback_data="orch_action:go_to_B1a")]]
-            await update.message.reply_text(
-                "Что дальше?",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        elif block_id == 'B1.b':
-            keyboard = [
-                [InlineKeyboardButton("✅ Подтвердить формулировку", callback_data="orch_action:confirm_B1b")],
-                [InlineKeyboardButton("🔁 Уточнить ЦА", callback_data="orch_action:refine_ca")],
-                [InlineKeyboardButton("📊 Показать Mini Pre-flight", callback_data="orch_action:show_preflight")],
-                [InlineKeyboardButton("🔍 /s-check", callback_data="orch_cmd:s-check")]
-            ]
-            await update.message.reply_text(
-                "Выберите действие:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        # Дополнительные блоки — по мере реализации
+        """Заглушка — кнопки отправляются в start_session и через main_handler"""
+        pass
 
     async def _handle_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE, cmd_info: Dict[str, Any]):
         command = cmd_info['command']
@@ -134,8 +120,6 @@ class OrchestratorAgent(BaseAgent):
             target_block = args.strip() if args else 'B0'
             self.session_data['current_block'] = target_block
             await update.message.reply_text(f"↩️ Возврат к блоку: {target_block}")
-        elif command == 'benchmarks':
-            await update.message.reply_text("📈 Запрашиваю бенчмарки...")
         else:
             await update.message.reply_text(f"🛠️ Команда `{command}` получена.")
 
