@@ -1,6 +1,6 @@
 from typing import Optional
 import hashlib
-from ..utils import mask_pii  # ← используем СУЩЕСТВУЮЩУЮ функцию из bot/utils.py
+from bot.utils import mask_pii  # ← правильно: bot/utils.py!!!    from ..utils import mask_pii   ← не правильно: bot/utils.py# ← используем СУЩЕСТВУЮЩУЮ функцию из bot/utils.py
 
 class LLMClient:
     """
