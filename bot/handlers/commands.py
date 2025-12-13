@@ -269,10 +269,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> BotState:
     if not update.message:
         return BotState.MAIN_MENU
     user_id = update.message.from_user.id
+    # 🔥 ОЧИСТКА ИСТОРИИ, SKILLTRAINER И UAF-АГЕНТА
     if user_id in user_conversation_history:
         del user_conversation_history[user_id]
     if user_id in active_skill_sessions:
         del active_skill_sessions[user_id]
+    # ✅ ОСНОВНОЕ ИСПРАВЛЕНИЕ: ОЧИСТКА АКТИВНОГО АГЕНТА UAF
+    if 'active_agent' in context.user_data:
+        del context.user_data['active_agent']
     await update.message.reply_text(
         "👋 Привет! Используйте нижнюю панель для навигации.",
         reply_markup=REPLY_KEYBOARD_MARKUP
