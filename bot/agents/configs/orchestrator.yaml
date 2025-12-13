@@ -1,0 +1,274 @@
+# ==============================================================================
+# ORCHESTRATOR AGENT CONFIG — V2.5
+# ==============================================================================
+
+name: "Оркестратор проекта"
+version: "2.5"
+
+# ------------------------------------------------------------------
+# БЛОКИ СОСТОЯНИЙ (машина состояний)
+# ------------------------------------------------------------------
+blocks:
+  B0:
+    title: "Презентация"
+    description: "Коротко объясни процесс и спроси: «Опишите результат, дедлайн и для кого (ЦА)»."
+    gated: false
+    expert_autopick: false
+
+  B1:
+    title: "Формулировка"
+    gated: false
+    expert_autopick: false
+    subblocks:
+      B1.a:
+        title: "Уточнения"
+        description: "3–5 уточнений: результат/дата; ЦА/JTBD; ограничения; что сделано/референсы."
+      B1.b:
+        title: "Подтверждение"
+        gated: true
+        expert_autopick: true
+        expert_policy: "strict"
+        max_experts: 2
+        confidence_min: 0.7
+      B1.s:
+        title: "S-check (условный)"
+        gated: false
+        conditional: true
+      B1.c:
+        title: "Микрокнопки"
+        gated: false
+      B1.1:
+        title: "Экран настроек"
+        gated: true
+
+  T1:
+    title: "Preview (Test Mode)"
+    gated: false
+    test_mode_only: true
+
+  T2:
+    title: "Summary (Test Mode)"
+    gated: false
+    test_mode_only: true
+
+  B2:
+    title: "Эксперты"
+    gated: false
+    expert_autopick: true
+
+  B3:
+    title: "План (WBS+RACI+DOD)"
+    gated: true
+
+  B3.s:
+    title: "S-check (условный)"
+    gated: false
+    conditional: true
+
+  B4:
+    title: "Ревью (качество/риски/комплаенс/этика)"
+    gated: true
+
+  B4.s:
+    title: "S-check (условный)"
+    gated: false
+    conditional: true
+
+  B5:
+    title: "Подтверждение запуска"
+    gated: true
+
+  B5.s:
+    title: "S-check (условный)"
+    gated: false
+    conditional: true
+
+  B6:
+    title: "Исполнение (шаги 6+)"
+    gated: false
+
+  "Ω-1":
+    title: "Интегральная оценка"
+    gated: false
+    expert_autopick: true
+
+  "Ω-2":
+    title: "Карточка проекта + SOP/Runbook"
+    gated: false
+
+  "Ω-5":
+    title: "Финальный чек (матрица «всё зелёное»)"
+    gated: true
+
+  "Ω-3":
+    title: "Завершение"
+    gated: false
+
+  "Ω-4":
+    title: "Самодиагностика промта"
+    gated: false
+
+# ------------------------------------------------------------------
+# ПЕРЕХОДЫ МЕЖДУ БЛОКАМИ
+# ------------------------------------------------------------------
+transitions:
+  B0: ["B1"]
+  B1: ["B1.a"]
+  "B1.a": ["B1.b"]
+  "B1.b": ["B1.c", "B1.s"]
+  "B1.c": ["B1.1"]
+  "B1.s": ["B1.c"]
+  "B1.1": ["T1", "B2"]
+  T1: ["T2"]
+  T2: ["B1", "B2"]
+  B2: ["B3"]
+  B3: ["B4", "B3.s"]
+  "B3.s": ["B4"]
+  B4: ["B5", "B4.s"]
+  "B4.s": ["B5"]
+  B5: ["B6", "B5.s"]
+  "B5.s": ["B6"]
+  B6: ["Ω-1"]
+  "Ω-1": ["Ω-2"]
+  "Ω-2": ["Ω-5"]
+  "Ω-5": ["Ω-3"]
+  "Ω-3": ["B0"]
+  "Ω-4": []
+
+# ------------------------------------------------------------------
+# ГЕЙТ-ЧЕКИ (DOD)
+# ------------------------------------------------------------------
+gates:
+  "B1.b":
+    required_fields:
+      - goal
+      - icp
+      - deadline
+      - north_star_metric
+      - lead_metrics
+    min_confidence: 0.6
+    fallback_action: "ask_one_clarifying_question"
+
+  "B1.1":
+    required_fields:
+      - mode
+      - risk_appetite
+      - privacy_mask_pii
+      - token_budget
+    description: "Расшифровки показаны; параметры безопасности и лимиты заданы."
+
+  "B3":
+    required_fields:
+      - plan.steps.owner
+      - plan.steps.raci
+      - plan.steps.dod
+      - plan.steps.estimate_hours
+    custom_check: "budget_time_guardrail"
+    description: "У каждого шага — Owner, RACI, DOD, оценки. Бюджет/время в лимитах."
+
+  "B4":
+    required_fields:
+      - compliance_ok
+      - ethics_ok
+    description: "Compliance и этика подтверждены. Критичные риски закрыты."
+
+  "B5":
+    required_fields:
+      - access_ready
+      - data_ready
+      - roles_assigned
+      - uat_env_ready
+    description: "Чек готовности: доступы, данные, роли, UAT-среда — всё зелёное."
+
+  "Ω-5":
+    required_fields:
+      - all_dod_passed
+      - all_risks_closed
+      - no_red_flags
+    description: "Матрица «всё зелёное». Без 100% — нельзя завершить."
+
+# ------------------------------------------------------------------
+# КОМАНДЫ (внутренние)
+# ------------------------------------------------------------------
+commands:
+  - name: "s-check"
+    description: "Запустить self-critique по шаблону"
+    alias: ["/s-check"]
+
+  - name: "assumptions"
+    description: "Показать/править карту допущений"
+    alias: ["/assumptions"]
+
+  - name: "diff"
+    description: "Показать изменения между версиями плана"
+    alias: ["/diff"]
+
+  - name: "uat_from_dod"
+    description: "Сгенерировать UAT из DOD"
+    alias: ["/uat_from_dod"]
+
+  - name: "benchmarks"
+    description: "Показать аналоги/бенчмарки"
+    alias: ["/benchmarks"]
+
+  - name: "вернуться"
+    description: "Каскадный возврат к указанному блоку"
+    alias: ["/вернуться"]
+    requires_arg: true
+
+  - name: "продолжить"
+    alias: ["/продолжить"]
+
+  - name: "сохранить"
+    alias: ["/сохранить"]
+
+# ------------------------------------------------------------------
+# РЕЖИМЫ РАБОТЫ
+# ------------------------------------------------------------------
+modes:
+  coach:
+    description: "Вы делаете, ассистент наставляет"
+    expert_pick: "strict"
+    why_on: true
+
+  pair:
+    description: "Совместные черновики"
+    expert_pick: "mixed"
+    why_on: false
+
+  contractor:
+    description: "Ассистент делает черновики"
+    expert_pick: "quiet"
+    why_on: false
+
+# ------------------------------------------------------------------
+# НАСТРОЙКИ ПО УМОЛЧАНИЮ
+# ------------------------------------------------------------------
+default_settings:
+  lang: "ru"
+  tone: "нейтральный"
+  depth: "medium"
+  mode: "coach"
+  autonomy: "manual"
+  privacy: "mask_pii:on"
+  citations: "on"
+  autopick: "quiet"
+  ask_before_add: false
+  max_roles: 6
+  similarity_threshold: 0.62
+  limits:
+    token_budget: 12000
+    cost_budget: "soft"
+  telemetry: "on"
+  test_mode: false
+  expert_comments: true
+  deliver_files: true
+  final_instruction: true
+  self_diagnosis: true
+  final_check: true
+  s_check: true
+  risk_appetite: "medium"
+  secrets_policy:
+    echo: false
+    redact: true
+    placeholders: "<SECRET_*>"
